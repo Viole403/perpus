@@ -1,0 +1,14 @@
+# Kredensial + artefak lokal — jangan commit
+INLISLIteV33/.env
+slims9_bulian/config/database.php
+slims9_bulian/config/env.php
+slims9_bulian/config/csp.php
+slims9_bulian/config/auth.php
+slims9_bulian/config/url.php
+local/.env
+local/inlis.env
+local/inlis-native.env
+insilite/
+inlislite-laragon-28082026.zip
+installer/dist/
+*.log

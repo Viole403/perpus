@@ -1,0 +1,96 @@
+{
+    "id": "999217148824702204",
+    "isbns": [
+        "0471616389"
+    ],
+    "title": "Acousto-optic devices : principles, design, and applications",
+    "publisher": "Wiley",
+    "pub_year": "1992",
+    "edition": null,
+    "creators": [
+        {
+            "type": "100",
+            "name": "Xu, Jieping",
+            "id": "(NO-TrBIB)90625942"
+        },
+        {
+            "type": "700",
+            "name": "Stroud, Robert",
+            "id": "(NO-TrBIB)90625943"
+        }
+    ],
+    "subjects": [
+        {
+            "type": "650",
+            "vocabulary": "lcsh",
+            "term": "Acoustooptical devices"
+        },
+        {
+            "type": "650",
+            "vocabulary": "noubomn",
+            "term": "Komponenter"
+        },
+        {
+            "type": "650",
+            "vocabulary": "noubomn",
+            "term": "Akustikk",
+            "id": "(NO-TrBIB)REAL013572"
+        },
+        {
+            "type": "650",
+            "vocabulary": "tekord",
+            "term": "Optikk"
+        },
+        {
+            "type": "650",
+            "vocabulary": "tekord",
+            "term": "Akustikk"
+        },
+        {
+            "type": "650",
+            "vocabulary": "tekord",
+            "term": "Optiske instrumenter"
+        },
+        {
+            "type": "653",
+            "term": "akustooptiske"
+        },
+        {
+            "type": "653",
+            "term": "effekter"
+        },
+        {
+            "type": "653",
+            "term": "komponenter"
+        }
+    ],
+    "classifications": [
+        {
+            "scheme": "udc",
+            "number": "535"
+        },
+        {
+            "scheme": "udc",
+            "number": "681.7"
+        },
+        {
+            "scheme": "udc",
+            "number": "534"
+        },
+        {
+            "scheme": "inspec",
+            "number": "b4170"
+        },
+        {
+            "scheme": "inspec",
+            "number": "a7820h"
+        },
+        {
+            "scheme": "inspec",
+            "number": "a4280"
+        }
+    ],
+    "toc": null,
+    "summary": null,
+    "part_of": null
+}

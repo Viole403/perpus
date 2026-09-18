@@ -1,0 +1,72 @@
+services:
+  db_slims:
+    image: docker.io/library/mariadb:lts
+    container_name: perpus-db-slims
+    ports:
+      - "${DB_SLIMS_PORT}:3306"
+    volumes:
+      - ../slims9_bulian/install/senayan.sql:/docker-entrypoint-initdb.d/01-senayan.sql:ro,Z
+      - ../slims9_bulian/install/sampledata.sql:/docker-entrypoint-initdb.d/02-sampledata.sql:ro,Z
+      - dbdata_slims:/var/lib/mysql
+    environment:
+      - MARIADB_ROOT_PASSWORD=${SLIMS_DB_PASS}
+      - MARIADB_DATABASE=${SLIMS_DB_NAME}
+      - MARIADB_USER=${SLIMS_DB_USER}
+      - MARIADB_PASSWORD=${SLIMS_DB_PASS}
+
+  slims:
+    container_name: perpus-slims
+    build:
+      context: ..
+      dockerfile: local/Dockerfile.slims
+    environment:
+      - ENV=${APP_ENV}
+      - DB_HOST=db_slims
+      - DB_PORT=3306
+      - DB_USER=${SLIMS_DB_USER}
+      - DB_PASS=${SLIMS_DB_PASS}
+      - DB_NAME=${SLIMS_DB_NAME}
+    volumes:
+      - appfiles:/var/www/html/files
+      - appimages:/var/www/html/images
+      - apprepo:/var/www/html/repository
+    ports:
+      - "${HTTP_PORT}:80"
+    depends_on:
+      - db_slims
+
+  db_inlis:
+    image: docker.io/library/mysql:8.0
+    container_name: perpus-db-inlis
+    command: --default-authentication-plugin=mysql_native_password
+    ports:
+      - "${DB_INLIS_PORT}:3306"
+    volumes:
+      - ../inlislite_v33.sql:/docker-entrypoint-initdb.d/01-inlislite.sql:ro,Z
+      - dbdata_inlis:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${INLIS_DB_PASS}
+      - MYSQL_DATABASE=${INLIS_DB_NAME}
+      - MYSQL_USER=${INLIS_DB_USER}
+      - MYSQL_PASSWORD=${INLIS_DB_PASS}
+
+  inlis:
+    container_name: perpus-inlis
+    build:
+      context: ..
+      dockerfile: local/Dockerfile.inlis
+    volumes:
+      - ./inlis.env:/var/www/html/.env:ro,Z
+      - inliswritable:/var/www/html/writable
+    ports:
+      - "${INLIS_PORT}:80"
+    depends_on:
+      - db_inlis
+
+volumes:
+  dbdata_slims:
+  dbdata_inlis:
+  appfiles:
+  appimages:
+  apprepo:
+  inliswritable:

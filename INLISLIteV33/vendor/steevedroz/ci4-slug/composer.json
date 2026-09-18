@@ -1,0 +1,39 @@
+{
+    "name": "steevedroz/ci4-slug",
+    "description": "Helps creating slugs more easily",
+    "keywords": ["codeigniter", "slug"],
+    "license": "MIT",
+    "authors": [{
+        "name": "Steeve Droz",
+        "homepage": "https://gitlab.com/SteeveDroz"
+    }],
+    "require": {
+        "php": ">=7.2",
+        "codeigniter4/framework": "^4.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.3",
+        "friendsofphp/php-cs-fixer": "^2.16"
+    },
+    "autoload": {
+        "psr-4": {
+            "SteeveDroz\\CiSlug\\": "lib"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "SteeveDroz\\CiSlug\\": "tests/unit/SteeveDroz/CiSlug",
+            "Mocks\\": "tests/mocks",
+            "Config\\": "tests/mocks/Config"
+        },
+        "files": [
+            "vendor/codeigniter4/framework/system/Helpers/url_helper.php",
+            "vendor/codeigniter4/framework/system/Helpers/text_helper.php"
+        ]
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-master": "1.x-dev"
+        }
+    }
+}

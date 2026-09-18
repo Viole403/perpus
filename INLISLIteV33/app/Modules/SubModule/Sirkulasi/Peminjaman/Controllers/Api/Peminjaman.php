@@ -1,0 +1,936 @@
+<?php
+
+namespace Peminjaman\Controllers\Api;
+
+use CodeIgniter\API\ResponseTrait;
+use App\Libraries\DataTable;
+use CodeIgniter\RESTful\ResourceController;
+use CodeIgniter\Database\Exceptions\DatabaseException;
+use Carbon\CarbonPeriod;
+
+//use Hermawan\DataTables\DataTable;
+
+class Peminjaman extends \Base\Controllers\BaseResourceController
+{
+	use ResponseTrait;
+	protected $peminjamanModel;
+	protected $collectionModel;
+	protected $anggotaModel;
+	protected $collectionLoanModel;
+	protected $collectionLoanItemModel;
+	protected $validation;
+	protected $session;
+	protected $modulePath;
+	protected $uploadPath;
+	protected $db;
+	protected $cart;
+	protected $pelanggaranModel;
+	protected $settingModel;
+
+	function __construct()
+	{
+		$this->peminjamanModel = new \Peminjaman\Models\PeminjamanModel();
+		$this->anggotaModel = new \Anggota\Models\AnggotaModel();
+		$this->collectionModel = new \Peminjaman\Models\CollectionModel();
+		$this->collectionLoanModel = new \Peminjaman\Models\CollectionLoanModel();
+		$this->collectionLoanItemModel = new \Peminjaman\Models\CollectionLoanItemModel();
+		 $this->pelanggaranModel = new \Pelanggaran\Models\PelanggaranModel();
+		$this->settingModel = new \PenomoranKoleksi\Models\PenomoranKoleksiModel();
+		$this->validation = \Config\Services::validation();
+		$this->session = session();
+		$this->modulePath = ROOTPATH . 'public/uploads/peminjaman/';
+		$this->uploadPath = WRITEPATH . 'uploads/';
+		$this->cart = new \App\Libraries\Cart();
+		$this->db = \Config\Database::connect('data');
+
+		if (!file_exists($this->modulePath)) {
+			mkdir($this->modulePath);
+		}
+
+		helper('reference');
+		helper('peminjaman');
+		helper('member');
+	}
+
+	public function datatable($slug = null)
+{
+    $db = db_connect();
+    $builder = $db->table('collectionloans cl')
+        ->select('cli.ID, cli.ID as action, cli.ID as action_notif')
+        ->select('cli.CollectionLoan_id, cli.LoanDate, cli.DueDate, cli.ActualReturn, cli.LateDays')
+        ->select('cl.UpdateDate')
+        ->select('col.NomorBarcode, col.ISDRM')
+        ->select('a.Title, a.PublishLocation, a.Publisher, a.PublishYear')
+        ->select('m.Fullname, m.MemberNo')
+        ->select('loc.Name as LocationLibrary')
+        ->join('collectionloanitems cli', 'cli.CollectionLoan_id = cl.ID')
+        ->join('collections col', 'col.ID = cli.Collection_id')
+        ->join('catalogs a', 'a.ID = col.Catalog_id')
+        ->join('members m', 'm.ID = cli.member_id')
+        ->join('location_library loc', 'loc.ID = col.Location_Library_id')
+        ->where('cli.LoanStatus', 'Loan')
+		->orderBy('cli.LoanDate', 'DESC'); // Urutkan berdasarkan tanggal pinjam terbaru				;
+		
+
+    // --- BARU: AMBIL PENGATURAN HARI LIBUR ---
+    // Pastikan $this->settingModel sudah tersedia di controller Anda
+    $settingsData = $this->settingModel
+        ->select('Name, Value')
+        ->whereIn('Name', ['IsSaturdayHoliday', 'IsSundayHoliday'])
+        ->findAll();
+
+    $settings = array_column($settingsData, 'Value', 'Name');
+
+    // Default ke 'True' (dianggap libur) jika pengaturan tidak ditemukan
+    $isSaturdayHoliday = $settings['IsSaturdayHoliday'] ?? 'True';
+    $isSundayHoliday = $settings['IsSundayHoliday'] ?? 'True';
+
+    $weekendDaysToIgnore = [];
+    if ($isSaturdayHoliday !== 'False') {
+        $weekendDaysToIgnore[] = '6'; // 6 = Sabtu
+    }
+    if ($isSundayHoliday !== 'False') {
+        $weekendDaysToIgnore[] = '7'; // 7 = Minggu
+    }
+    // --- AKHIR BLOK BARU ---
+
+
+    // --- BARU: AMBIL HARI LIBUR NASIONAL/KUSTOM ---
+    $holidayRows = $db->table('holidays as a')
+        ->select('a.Dates')
+        ->where('a.active', 1) // Asumsi kita hanya ambil hari libur yang aktif
+        ->get()
+        ->getResult();
+
+    $holidayList = [];
+    foreach ($holidayRows as $holiday) {
+        // Simpan dalam format Y-m-d sebagai key array untuk pencarian cepat
+        $holidayList[date('Y-m-d', strtotime($holiday->Dates))] = true;
+    }
+    // --- AKHIR BLOK BARU ---
+
+
+    $dataTable = DataTable::of($builder)
+        ->addNumbering('no')
+        ->onGlobalSearch('CollectionLoan_id', function ($builder, $column, $search) {
+            $builder->orGroupStart()
+                ->orLike('m.MemberNo', $search)
+                ->orLike('m.Fullname', $search)
+                ->orLike('cl.ID', $search)
+                ->groupEnd();
+        })
+        ->onSearch('CollectionLoan_id', function ($builder, $column, $search) {
+            $builder->groupStart()
+                ->like('m.MemberNo', $search)
+                ->orLike('m.Fullname', $search)
+                ->orLike('cl.ID', $search)
+                ->groupEnd();
+        })
+        ->edit('CollectionLoan_id', function ($row) {
+            // Tombol "Cetak Struk" pakai ulang halaman struk yang sudah ada
+            // (Peminjaman::success) — halaman itu memang mengambil data loan
+            // dari DB berdasarkan ?loan_id=, bukan dari session, jadi bisa
+            // dipakai untuk mencetak ulang struk transaksi lama kapan saja.
+            $strukUrl = base_url('sirkulasi-peminjaman/success?loan_id=' . $row->CollectionLoan_id);
+
+            $html =
+                '<div class="widget-content p-0">
+                <div class="widget-content-wrapper d-flex justify-content-between align-items-center flex-wrap">
+                    <div class="d-flex align-items-center">
+                        <div class="widget-content-left mr-3">
+                            <i class="far fa-id-card fa-3x text-secondary"></i>
+                        </div>
+                        <div class="widget-content-left text-secondary">
+                            <dl class="dl-horizontal mb-0">
+                                <dt class="font-weight-bold mb-0"><i class="fa fa-user text-secondary"></i> No. Anggota</dt>
+                                <dd class="font-weight-bold mb-0 mr-1">&nbsp;: <a href="#">' . $row->MemberNo . '  <span class="text-secondary">(' . $row->Fullname . ')</span></a></dd>
+                                <dt class="font-weight-bold mb-0"><i class="fa fa-hashtag text-secondary"></i> No. Transaksi</dt>
+                                <dd class="font-weight-bold mb-0 mr-1">&nbsp;: <a href="#">' . $row->CollectionLoan_id . '</a></dd>
+                            </dl>
+                        </div>
+                    </div>
+                    <a href="' . $strukUrl . '" target="_blank" class="btn btn-outline-primary btn-sm" onclick="event.stopPropagation();" title="Cetak ulang struk bukti peminjaman untuk transaksi ini">
+                        <i class="fa fa-print"></i> Cetak Struk
+                    </a>
+                </div>
+            </div>';
+            return $html;
+        })
+        ->edit('NomorBarcode', function ($row) {
+            $html =
+                '<div class="widget-content p-0">
+                <div class="widget-content-wrapper">
+                    <div class="widget-content-left mr-3">
+                        <i class="fa fa-qrcode fa-2x text-info"></i>
+                    </div>
+                    <div class="widget-content-left">
+                        <div class="widget-heading">' . $row->NomorBarcode . '</div>
+                    </div>
+                </div>
+            </div>';
+            return $html;
+        })
+        ->edit('Title', function ($row) {
+            $html =
+                '<div class="widget-content p-0">
+                <div class="widget-content-wrapper">
+                    <div class="widget-content-left mr-3">
+                        <i class="fa fa-book fa-2x text-info"></i>
+                    </div>
+                    <div class="widget-content-left">
+                        <div class="widget-heading text-primary">' . $row->Publisher . '</div>
+                        <div class="widget-heading">' . $row->Title . '</div>
+                    </div>
+                </div>
+            </div>';
+            return $html;
+        })
+        ->edit('LoanDate', function ($row) {
+            $html  =  '<badge class="badge badge-primary badge-pill">' . $row->LoanDate . '</badge>';
+            $html .=  '<badge class="badge badge-warning badge-pill">' . $row->DueDate . '</badge>';
+            return $html;
+        })
+        // --- BLOK 'LateDays' DIMODIFIKASI ---
+        ->edit('LateDays', function ($row) use ($weekendDaysToIgnore, $holidayList) {
+            
+            $today = date('Y-m-d');
+
+            if ($row->DueDate > $today) {
+                // --- Belum Jatuh Tempo ---
+                $periods = \Carbon\CarbonPeriod::create($today, $row->DueDate);
+                $dates = [];
+                foreach ($periods as $period) {
+                    $currentDayOfWeek = $period->format('N'); // 1 (Mon) - 7 (Sun)
+                    $currentDate = $period->format('Y-m-d');
+                    
+                    // Lewati jika hari ini (untuk perhitungan sisa hari)
+                    if ($currentDate == $today) continue;
+
+                    // Cek 1: Apakah hari ini Sabtu/Minggu yang disetel libur?
+                    if (in_array($currentDayOfWeek, $weekendDaysToIgnore)) continue;
+
+                    // Cek 2: Apakah hari ini ada di daftar hari libur?
+                    if (isset($holidayList[$currentDate])) continue;
+                    
+                    // Jika lolos, tambahkan ke hitungan
+                    $dates[] = $currentDate;
+                }
+
+                $diff = '-' . count($dates);
+                if (count($dates) <= 3) {
+                    if (count($dates) == 0) {
+                        $diff_class = 'info';
+                        // Logika +0 dari kode asli Anda, mungkin untuk "Jatuh Tempo Hari Ini"
+                        $diff = '+' . count($dates); 
+                    } else {
+                        $diff_class = 'warning'; // Mendekati jatuh tempo
+                    }
+                } else {
+                    $diff_class = 'secondary'; // Masih lama
+                }
+            } else {
+                // --- Sudah Jatuh Tempo / Terlambat ---
+                $periods = \Carbon\CarbonPeriod::create($row->DueDate, $today);
+                $dates = [];
+                foreach ($periods as $period) {
+                    $currentDayOfWeek = $period->format('N');
+                    $currentDate = $period->format('Y-m-d');
+
+                    // Lewati tanggal jatuh tempo itu sendiri (denda dihitung H+1)
+                    if ($currentDate == $row->DueDate) continue;
+
+                    // Cek 1: Apakah hari ini Sabtu/Minggu yang disetel libur?
+                    if (in_array($currentDayOfWeek, $weekendDaysToIgnore)) continue;
+
+                    // Cek 2: Apakah hari ini ada di daftar hari libur?
+                    if (isset($holidayList[$currentDate])) continue;
+
+                    // Jika lolos, tambahkan ke hitungan
+                    $dates[] = $currentDate;
+                }
+
+                $diff = '+' . count($dates);
+                $diff_class = (count($dates) > 0) ? 'danger' : 'info'; // 'danger' jika terlambat, 'info' jika 0 (pas hari H)
+            }
+
+            $html  =  '<badge class="badge badge-' . $diff_class . ' badge-pill">' . $diff . ' hari</badge>';
+            return $html;
+        })
+        // --- AKHIR BLOK MODIFIKASI 'LateDays' ---
+        ->edit('UpdateDate', function ($row) {
+            $html  =  '<badge class="badge badge-info badge-pill">' . $row->UpdateDate . '</badge>';
+            return $html;
+        })
+       
+        ->toJson();
+    return $dataTable;
+}
+
+
+
+	public function loan_datatable($member_no = null)
+{
+    $db = db_connect();
+    $builder = $db->table('collectionloans cl')
+        ->select('cli.ID, cli.ID as action')
+        ->select('cli.CollectionLoan_id, cli.LoanDate, cli.DueDate, cli.ActualReturn, cli.LateDays')
+        ->select('cl.UpdateDate')
+        ->select('col.NomorBarcode, col.ID as collection_id')
+        ->select('cat.Title, cat.PublishLocation, cat.Publisher, cat.PublishYear')
+        ->select('m.Fullname, m.MemberNo, m.ID as member_id')
+        ->select('loc.Name as LocationLibrary')
+        ->join('collectionloanitems cli', 'cli.CollectionLoan_id = cl.ID')
+        ->join('collections col', 'col.ID = cli.Collection_id')
+        ->join('catalogs cat', 'cat.ID = col.Catalog_id')
+        ->join('members m', 'm.ID = cli.member_id')
+        ->join('location_library loc', 'loc.ID = col.Location_Library_id')
+        ->where('cli.LoanStatus', 'Loan');
+
+    if (!empty($member_no)) {
+        $builder->where('m.MemberNo', $member_no);
+    }
+
+    // --- BARU: AMBIL PENGATURAN HARI LIBUR ---
+    // Pastikan $this->settingModel sudah tersedia di controller Anda
+    // (misalnya melalui dependency injection atau $this->settingModel = new \App\Models\SettingModel();)
+    $settingsData = $this->settingModel
+        ->select('Name, Value')
+        ->whereIn('Name', ['IsSaturdayHoliday', 'IsSundayHoliday'])
+        ->findAll();
+
+    $settings = array_column($settingsData, 'Value', 'Name');
+
+    // Default ke 'True' (dianggap libur) jika pengaturan tidak ditemukan
+    $isSaturdayHoliday = $settings['IsSaturdayHoliday'] ?? 'True';
+    $isSundayHoliday = $settings['IsSundayHoliday'] ?? 'True';
+
+    $weekendDaysToIgnore = [];
+    if ($isSaturdayHoliday !== 'False') {
+        $weekendDaysToIgnore[] = '6'; // 6 = Sabtu
+    }
+    if ($isSundayHoliday !== 'False') {
+        $weekendDaysToIgnore[] = '7'; // 7 = Minggu
+    }
+    // --- AKHIR BLOK BARU ---
+
+
+    // --- BARU: AMBIL HARI LIBUR NASIONAL/KUSTOM ---
+    $holidayRows = $db->table('holidays as a')
+        ->select('a.Dates')
+        ->where('a.active', 1) // Asumsi kita hanya ambil hari libur yang aktif
+        ->get()
+        ->getResult();
+
+    $holidayList = [];
+    foreach ($holidayRows as $holiday) {
+        // Simpan dalam format Y-m-d sebagai key array untuk pencarian cepat
+        $holidayList[date('Y-m-d', strtotime($holiday->Dates))] = true;
+    }
+    // --- AKHIR BLOK BARU ---
+
+    // dd($builder->get()->getResult());
+
+    $dataTable = DataTable::of($builder)
+        ->addNumbering('no')
+        ->edit('NomorBarcode', function ($row) {
+            $html =
+                '<div class="widget-content p-0">
+                <div class="widget-content-wrapper">
+                    <div class="widget-content-left mr-3">
+                        <i class="far fa-qrcode fa-2x text-info"></i>
+                    </div>
+                    <div class="widget-content-left">
+                        <div class="widget-heading">' . $row->CollectionLoan_id . '</div>
+                        <div class="widget-subheading">' . $row->NomorBarcode . '</div>
+                    </div>
+                </div>
+            </div>';
+            return $html;
+        })
+        ->edit('Title', function ($row) {
+            $html =
+                '<div class="widget-content p-0">
+                <div class="widget-content-wrapper">
+                    <div class="widget-content-left mr-3">
+                        <i class="far fa-book fa-2x text-info"></i>
+                    </div>
+                    <div class="widget-content-left">
+                        <div class="widget-heading text-primary">' . $row->Publisher . '</div>
+                        <div class="widget-heading">' . $row->Title . '</div>
+                    </div>
+                </div>
+            </div>';
+            return $html;
+        })
+        ->edit('LoanDate', function ($row) {
+            $html  =  '<badge class="badge badge-primary badge-pill">' . $row->LoanDate . '</badge>';
+            $html .=  '<badge class="badge badge-warning badge-pill">' . $row->DueDate . '</badge>';
+            return $html;
+        })
+        // --- BLOK 'LateDays' DIMODIFIKASI ---
+        ->edit('LateDays', function ($row) use ($weekendDaysToIgnore, $holidayList) {
+            
+            $today = date('Y-m-d');
+
+            if ($row->DueDate > $today) {
+                // --- Belum Jatuh Tempo ---
+                $periods = \Carbon\CarbonPeriod::create($today, $row->DueDate);
+                $dates = [];
+                foreach ($periods as $period) {
+                    $currentDayOfWeek = $period->format('N'); // 1 (Mon) - 7 (Sun)
+                    $currentDate = $period->format('Y-m-d');
+                    
+                    // Lewati jika hari ini (untuk perhitungan sisa hari)
+                    if ($currentDate == $today) continue;
+
+                    // Cek 1: Apakah hari ini Sabtu/Minggu yang disetel libur?
+                    if (in_array($currentDayOfWeek, $weekendDaysToIgnore)) continue;
+
+                    // Cek 2: Apakah hari ini ada di daftar hari libur?
+                    if (isset($holidayList[$currentDate])) continue;
+                    
+                    // Jika lolos, tambahkan ke hitungan
+                    $dates[] = $currentDate;
+                }
+
+                $diff = '-' . count($dates);
+                if (count($dates) <= 3) {
+                    if (count($dates) == 0) {
+                        $diff_class = 'info';
+                        // Logika +0 dari kode asli Anda, mungkin untuk "Jatuh Tempo Hari Ini"
+                        $diff = '+' . count($dates); 
+                    } else {
+                        $diff_class = 'warning'; // Mendekati jatuh tempo
+                    }
+                } else {
+                    $diff_class = 'secondary'; // Masih lama
+                }
+            } else {
+                // --- Sudah Jatuh Tempo / Terlambat ---
+                $periods = \Carbon\CarbonPeriod::create($row->DueDate, $today);
+                $dates = [];
+                foreach ($periods as $period) {
+                    $currentDayOfWeek = $period->format('N');
+                    $currentDate = $period->format('Y-m-d');
+
+                    // Lewati tanggal jatuh tempo itu sendiri (denda dihitung H+1)
+                    if ($currentDate == $row->DueDate) continue;
+
+                    // Cek 1: Apakah hari ini Sabtu/Minggu yang disetel libur?
+                    if (in_array($currentDayOfWeek, $weekendDaysToIgnore)) continue;
+
+                    // Cek 2: Apakah hari ini ada di daftar hari libur?
+                    if (isset($holidayList[$currentDate])) continue;
+
+                    // Jika lolos, tambahkan ke hitungan
+                    $dates[] = $currentDate;
+                }
+
+                $diff = '+' . count($dates);
+                $diff_class = (count($dates) > 0) ? 'danger' : 'info'; // 'danger' jika terlambat, 'info' jika 0 (pas hari H)
+            }
+
+            $html  =  '<badge class="badge badge-' . $diff_class . ' badge-pill">' . $diff . ' hari</badge>';
+            return $html;
+        })
+        // --- AKHIR BLOK MODIFIKASI 'LateDays' ---
+        ->edit('UpdateDate', function ($row) {
+            $html  =  '<badge class="badge badge-info badge-pill">' . $row->UpdateDate . '</badge>';
+            return $html;
+        })
+        ->edit('action', function ($row) {
+            // --- INI ADALAH BLOK YANG ANDA SEDIAKAN DI PROMPT ---
+            $isLate = false;
+            $lateDays = 0;
+            $db = db_connect();
+
+            $pelanggaran = $db->table('pelanggaran')
+            ->select('CollectionLoanItem_id')->where('CollectionLoanItem_id', $row->ID)->get()->getRow();
+            
+            // --- PERHITUNGAN ULANG HARI TERLAMBAT (HANYA UNTUK LOGIKA TOMBOL) ---
+            // Logika ini harus SAMA PERSIS dengan logika di 'LateDays'
+            // Kita perlu mengambil $weekendDaysToIgnore dan $holidayList ke sini juga
+            // CARA LEBIH BAIK: Hitung sekali saja di 'LateDays' dan teruskan.
+            // Tapi karena library datatable memisahkan closure, kita hitung ulang di sini
+            // (CATATAN: Ini tidak efisien. Idealnya, hasil 'LateDays' harus disimpan/diteruskan)
+            
+            // --- Mulai perhitungan cepat (untuk $isLate) ---
+            $today = date('Y-m-d');
+            if ($row->DueDate < $today) {
+                 // Ambil lagi pengaturan libur (ini SANGAT tidak efisien, tapi terpaksa)
+                 $settingsData = $this->settingModel->select('Name, Value')->whereIn('Name', ['IsSaturdayHoliday', 'IsSundayHoliday'])->findAll();
+                 $settings = array_column($settingsData, 'Value', 'Name');
+                 $isSaturdayHoliday = $settings['IsSaturdayHoliday'] ?? 'True';
+                 $isSundayHoliday = $settings['IsSundayHoliday'] ?? 'True';
+                 $weekendDaysToIgnore_action = [];
+                 if ($isSaturdayHoliday !== 'False') $weekendDaysToIgnore_action[] = '6';
+                 if ($isSundayHoliday !== 'False') $weekendDaysToIgnore_action[] = '7';
+
+                 $holidayRows_action = $db->table('holidays as a')->select('a.Dates')->where('a.active', 1)->get()->getResult();
+                 $holidayList_action = [];
+                 foreach ($holidayRows_action as $holiday) {
+                     $holidayList_action[date('Y-m-d', strtotime($holiday->Dates))] = true;
+                 }
+                // --- Selesai ambil data libur ---
+
+                $periods = \Carbon\CarbonPeriod::create($row->DueDate, $today);
+                $dates = [];
+                foreach ($periods as $period) {
+                    $currentDayOfWeek = $period->format('N');
+                    $currentDate = $period->format('Y-m-d');
+                    if ($currentDate == $row->DueDate) continue; // H+1
+                    if (in_array($currentDayOfWeek, $weekendDaysToIgnore_action)) continue;
+                    if (isset($holidayList_action[$currentDate])) continue;
+                    $dates[] = $currentDate;
+                }
+                $lateDays = count($dates);
+                $isLate = $lateDays > 0;
+            }
+            // --- Selesai perhitungan cepat ---
+
+
+            $actionButtons = '';
+
+            if ($pelanggaran == null && $isLate) {
+                // ADDED ALL data-* ATTRIBUTES HERE
+                $violationBtn = '<a href="javascript:void(0);" 
+                     data-toggle="modal" 
+                                data-target="#modalViolation"
+                                data-id="' . $row->ID . '" 
+                                data-loan-id="' . $row->CollectionLoan_id . '"
+                                data-barcode="' . $row->NomorBarcode . '"
+                                data-title="' . htmlspecialchars($row->Title, ENT_QUOTES) . '"
+                                data-late-days="' . $lateDays . '"
+                                 data-member-id="' . $row->member_id . '"
+                               data-collection-id="' . $row->collection_id . '"
+                                data-toggle-tooltip="tooltip" 
+                                data-placement="top" 
+                                title="Tambah Pelanggaran" 
+                                class="btn btn-warning add-violation">
+                                <i class="pe-7s-attention font-weight-bold"></i> Pelanggaran
+                </a>';
+
+                
+
+                $actionButtons = $violationBtn;
+            } else {
+                $returnBtn = '<a href="javascript:void(0);" 
+                    data-href="' . base_url('sirkulasi-pengembalian/do_return/' . $row->ID) . '" 
+                    data-toggle="tooltip" data-placement="top" title="Kembalikan" class="btn btn-primary return-data">
+                    <i class="pe-7s-refresh font-weight-bold"></i>
+                </a>';
+                $actionButtons = $returnBtn;
+            }
+
+            $delete = '<a href="javascript:void(0);" 
+                data-href="' . base_url('sirkulasi-peminjaman/delete/' . $row->ID) . '" 
+                data-toggle="tooltip" data-placement="top" title="Hapus" class="btn btn-danger remove-data">
+                <i class="pe-7s-trash font-weight-bold"></i>
+            </a>';
+
+            return $actionButtons . ' ' . $delete;
+        })
+        ->toJson();
+    return $dataTable;
+}
+
+
+	
+
+	public function loan_datatable_simple($member_no = null)
+	{
+		$db = db_connect();
+		$builder = $db->table('collectionloans cl')
+			->select('cli.ID, cli.ID as action')
+			->select('cli.CollectionLoan_id, cli.LoanDate, cli.DueDate, cli.ActualReturn, cli.LateDays')
+			->select('cl.UpdateDate')
+			->select('col.NomorBarcode')
+			->select('cat.Title, cat.PublishLocation, cat.Publisher, cat.PublishYear')
+			->select('m.Fullname, m.MemberNo')
+			->select('loc.Name as LocationLibrary')
+			->join('collectionloanitems cli', 'cli.CollectionLoan_id = cl.ID')
+			->join('collections col', 'col.ID = cli.Collection_id')
+			->join('catalogs cat', 'cat.ID = col.Catalog_id')
+			->join('members m', 'm.ID = cli.member_id')
+			->join('location_library loc', 'loc.ID = col.Location_Library_id')
+			->where('cli.LoanStatus', 'Loan');
+
+		if (!empty($member_no)) {
+			$builder->where('m.MemberNo', $member_no);
+		}
+
+		$dataTable = DataTable::of($builder)
+			->addNumbering('no')
+			->edit('NomorBarcode', function ($row) {
+				$html  = '<b>' . $row->NomorBarcode . '</b>';
+				return $html;
+			})
+			->edit('Title', function ($row) {
+				$html  = '<b>' . $row->Publisher . '</b><br>';
+				$html .= $row->Title;
+				return $html;
+			})
+			->edit('LoanDate', function ($row) {
+				$html  =  '<b>' . $row->LoanDate . '</b><br>';
+				return $html;
+			})
+			->edit('DueDate', function ($row) {
+				$html  =  '<b>' . $row->DueDate . '</b><br>';
+				return $html;
+			})
+			->edit('LateDays', function ($row) {
+				if ($row->DueDate > date('Y-m-d')) {
+					$periods = \Carbon\CarbonPeriod::create(date('Y-m-d'), $row->DueDate);
+					$dates = [];
+					foreach ($periods as $period) {
+						if (in_array($period->format('N'), ['6', '7'])) continue;
+						$dates[] = $period->format('Y-m-d');
+					}
+
+					$diff = '-' . count($dates);
+					if (count($dates) <= 3) {
+						if (count($dates) == 0) {
+							$diff_class = 'info';
+							$diff = '+' . count($dates);
+						} else {
+							$diff_class = 'warning';
+						}
+					} else {
+						$diff_class = 'secondary';
+					}
+				} else {
+					$periods = \Carbon\CarbonPeriod::create($row->DueDate, date('Y-m-d'));
+					$dates = [];
+					foreach ($periods as $period) {
+						if (in_array($period->format('N'), ['6', '7'])) continue;
+						$dates[] = $period->format('Y-m-d');
+					}
+
+					$diff = '+' . count($dates);
+					$diff_class = 'danger';
+				}
+
+				$html  =  '<b>' . $diff . ' hari</b>';
+				return $html;
+			})
+			->edit('action', function ($row) {
+				$edit = '<a href="javascript:void(0);" data-href="' . base_url('sirkulasi/pengembalian/do_return/' . $row->ID) . '" data-toggle="tooltip" data-placement="top" title="Kembalikan" class="btn btn-primary return-data"><i class="pe-7s-refresh font-weight-bold"> </i></a>';
+				$delete = '<a href="javascript:void(0);" data-href="' . base_url('sirkulasi-peminjaman/delete/' . $row->ID) . '" data-toggle="tooltip" data-placement="top" title="Hapus " class="btn btn-danger remove-data"><i class="pe-7s-trash font-weight-bold"> </i></a>';
+				return $edit . ' ' . $delete;
+			})
+			->toJson();
+		return $dataTable;
+	}
+
+	public function koleksi($member_no = null)
+	{
+		$db = db_connect();
+		$builder = $db->table('collections col')
+			->select('col.ID,col.Branch_id, col.ID as action')
+			->select('col.NomorBarcode, col.UpdateDate')
+			->select('cat.Title, cat.PublishLocation, cat.Publisher, cat.PublishYear')
+			->join('catalogs cat', 'cat.ID = col.Catalog_id');
+		// if(!empty(branch_id())){
+		// 	$builder->where('col.Branch_id', branch_id());
+
+		// }
+
+		if (!empty($member_no)) {
+			$cli = get_ref_table('collectionloanitems', 'Collection_id', 'LoanStatus="Loan"', 'data');
+			$cli_arr = get_object_array($cli, 'Collection_id');
+			$cart_cli_arr = array();
+			$carts = get_cart_loan();
+			if (!empty($carts)) {
+				foreach ($carts as $row) {
+					$cart_cli_arr[] = $row->options->collection->ID;
+				}
+			}
+
+			$col_id_arr = array_merge($cli_arr, $cart_cli_arr);
+			if (!empty($col_id_arr)) {
+				$builder->whereNotIn('col.ID', $col_id_arr);
+			}
+
+			$member = get_ref_single('members', 'MemberNo="' . $member_no . '"', 'data');
+			$member_loc = get_ref_table('memberloanauthorizelocation', 'LocationLoan_id', 'Member_id="' . $member->ID . '"', 'data');
+			$member_loc_arr = get_object_array($member_loc, 'LocationLoan_id');
+			if (!empty($member_loc_arr)) {
+				$builder->whereIn('col.Location_Library_id', $member_loc_arr);
+			}
+
+			$member_cat = get_ref_table('memberloanauthorizecategory', 'CategoryLoan_id', 'Member_id="' . $member->ID . '"', 'data');
+			$member_cat_arr = get_object_array($member_cat, 'CategoryLoan_id');
+			if (!empty($member_cat_arr)) {
+				$builder->whereIn('col.Category_id', $member_cat_arr);
+			}
+		}
+
+		$dataTable = DataTable::of($builder)
+			->addNumbering('no')
+			->edit('ID', function ($row) {
+				$html = '<input type="checkbox" class="check" name="ID[]" value="' . $row->ID . '">';
+				return $html;
+			})
+			->edit('NomorBarcode', function ($row) {
+				$html =
+					'<div class="widget-content p-0">
+					<div class="widget-content-wrapper">
+						<div class="widget-content-left mr-3">
+							<i class="far fa-qrcode fa-2x text-info"></i>
+						</div>
+						<div class="widget-content-left">
+							<div class="widget-heading">' . $row->NomorBarcode . '</div>
+						</div>
+					</div>
+				</div>';
+				return $html;
+			})
+			->edit('Title', function ($row) {
+				$html =
+					'<div class="widget-content p-0">
+					<div class="widget-content-wrapper">
+						<div class="widget-content-left mr-3">
+							<i class="far fa-book fa-2x text-info"></i>
+						</div>
+						<div class="widget-content-left">
+							<div class="widget-heading text-primary">' . $row->Publisher . '</div>
+							<div class="widget-heading">' . $row->Title . '</div>
+						</div>
+					</div>
+				</div>';
+				return $html;
+			})
+			->edit('UpdateDate', function ($row) {
+				$html  =  '<badge class="badge badge-info badge-pill">' . $row->UpdateDate . '</badge>';
+				return $html;
+			})
+			->edit('action', function ($row) {
+				$edit = '<a href="javascript:void(0);" data-href="' . base_url('api/sirkulasi-peminjaman/detail/' . $row->ID) . '" data-toggle="tooltip" data-placement="top" title="Ubah" class="btn btn-primary show-data"><i class="pe-7s-note font-weight-bold"> </i></a>';
+				$delete = '<a href="javascript:void(0);" data-href="' . base_url('peminjaman/delete/' . $row->ID) . '" data-toggle="tooltip" data-placement="top" title="Hapus " class="btn btn-danger remove-data"><i class="pe-7s-trash font-weight-bold"> </i></a>';
+				return $edit . ' ' . $delete;
+			})
+			->toJson();
+		return $dataTable;
+	}
+
+	
+	public function switch($id = null)
+	{
+		$field = $this->request->getGet('field');
+		$value = $this->request->getGet('value');
+
+		$update_data_id = $this->peminjamanModel->update($id, array($field => ($value == 'true') ? 1 : 0));
+
+		if ($update_data_id) {
+			$response = [
+				'error' => false,
+				'message' => 'Field Upload Dokumen Keanggotaan berhasil disimpan',
+			];
+		} else {
+			$response = [
+				'error' => true,
+				'message' => 'Field Upload Dokumen Keanggotaan gagal disimpan. Silakan coba lagi',
+			];
+		}
+		return $this->simpleResponse($response);
+	}
+
+	public function CreateLoan()
+	{
+		// Ambil data JSON dari request
+		$json = $this->request->getJSON();
+
+		if (!$json) {
+			return $this->fail('Invalid JSON input', 400);
+		}
+
+		$member_id = $json->member_id ?? null;
+		$branch_id = $json->branch_id ?? null;
+		$collection_id = $json->collection_id ?? null;
+		$user_id = $json->user_id ?? null;
+
+		// Validasi input
+		if (!$member_id || !$branch_id || !$collection_id || !$user_id) {
+			return $this->fail('Missing required fields', 400);
+		}
+
+		try {
+			$this->db->transBegin();
+			// Lock the latest row while generating the sequential loan number so
+			// concurrent requests cannot receive the same collectionloans.ID.
+			$collection_loan = $this->db->query(
+				'SELECT ID FROM collectionloans WHERE ID IS NOT NULL ORDER BY ID DESC LIMIT 1 FOR UPDATE'
+			)->getRow();
+			$increment = ($collection_loan ? (int) substr((string) $collection_loan->ID, -5) : 0) + 1;
+			$collection_loan_id = get_pad_number($increment, date('ymd'), 5);
+
+			// Check if member exists
+			$member = $this->anggotaModel->where('ID', $member_id)->first();
+
+
+			if (!$member) {
+				return $this->fail('Member not found', 404);
+			}
+
+			// Check if collection exists
+			$collection = $this->collectionModel->where('ID', $collection_id)->first();
+
+			if (!$collection) {
+				return $this->fail('Collection not found', 404);
+			}
+			$branchid = $this->collectionModel
+				->where('ID', $collection_id)
+				->where('Branch_id', $branch_id)->first();
+
+			if (!$branchid) {
+				return $this->fail('Collection access denied', 404);
+			}
+
+			// Check if collection is available (Status_id = 1)
+			if ($collection->Status_id != 1) {
+				return $this->fail('Collection is not available for loan', 400);
+			}
+
+			// Simpan ke tabel collectionloans
+			$loanData = [
+				'ID' => $collection_loan_id,
+				'Member_id' => $member_id,
+				'Branch_id' => $branch_id,
+				'CreateBy' => $user_id,
+				'CollectionCount' => 1,
+				'CreateDate' => date('Y-m-d H:i:s'),
+			];
+
+			try {
+				$this->collectionLoanModel->insert($loanData);
+				$loanId = $this->collectionLoanModel->insertID();
+			} catch (\Exception $e) {
+				$this->db->transRollback();
+				return $this->fail('Failed to create loan: ' . $e->getMessage(), 500);
+			}
+
+			$loanDate = date('Y-m-d H:i:s');
+
+			// Simpan ke tabel collectionloanitems
+			$loanItemData = [
+				'Collection_id' => $collection_id,
+				'CollectionLoan_id' => $loanId,
+				'member_id' => $member_id,
+				'branch_id' => $branch_id,
+				'LoanStatus' => "Loan", // Atur status peminjaman sesuai kebutuhan
+				'LoanDate' => $loanDate,
+				'DueDate' => date('Y-m-d H:i:s', strtotime($loanDate . ' +7 days')),
+				'CreateBy' => $user_id,
+				'CreateDate' => date('Y-m-d H:i:s'),
+			];
+
+			$this->collectionLoanItemModel->insert($loanItemData);
+
+			// Update status koleksi menjadi 5
+			$this->collectionModel->where('id', $collection_id)
+				->set(['Status_id' => 5])
+				->update();
+
+			// Kirim respons sukses
+			if ($this->db->transStatus() === false) {
+				$this->db->transRollback();
+				return $this->fail('Failed to create loan', 500);
+			}
+			$this->db->transCommit();
+			return $this->respond(['message' => 'Loan created successfully'], 200);
+		} catch (\Exception $e) {
+			$this->db->transRollback();
+			return $this->fail('Error: ' . $e->getMessage(), 500);
+		}
+	}
+
+	public function loan_history()
+	{
+
+		// Mengambil parameter dari request
+		$requestedFields = $this->request->getVar('fields') ?? [
+			'collectionloanitems.*',
+			'members.FullName',
+			'collections.Catalog_id',
+			'collections.NomorBarcode'  // Added NomorBarcode to default fields
+		];
+		$search = $this->request->getVar('search') ?? '';
+		$limit = (int)($this->request->getVar('limit') ?? 10);
+		$page = (int)($this->request->getVar('page') ?? 1);
+		$offset = ($page - 1) * $limit;
+		$order = $this->request->getVar('order') ?? 'collectionloanitems.ID';
+		$direction = $this->request->getVar('direction') ?? 'desc';
+		$loanStatus = $this->request->getVar('LoanStatus');
+		$member_id = $this->request->getVar('member_id');
+		$barcode = $this->request->getVar('NomorBarcode');
+
+		// Memastikan catalogs.Title selalu dimasukkan
+		$fields = array_unique(array_merge($requestedFields, ['catalogs.Title', 'collections.NomorBarcode']));
+
+		// Memulai membangun query
+		$builder = $this->db->table('collectionloanitems')
+			->select($fields)
+			->join('members', 'members.ID = collectionloanitems.member_id', 'left')
+			->join('collections', 'collections.ID = collectionloanitems.Collection_id', 'left')
+			->join('catalogs', 'catalogs.ID = collections.Catalog_id', 'left');
+
+		// Menerapkan filter
+		if ($loanStatus !== null) {
+			$builder->where('collectionloanitems.LoanStatus', $loanStatus);
+		}
+
+		if ($member_id !== null) {
+			$builder->where('collectionloanitems.member_id', $member_id);
+		}
+		if ($barcode !== null) {
+			$builder->where('collections.NomorBarcode', $barcode);
+		}
+
+		if (!empty($search)) {
+			$builder->groupStart()
+				->like('catalogs.Title', $search)
+				->orLike('members.FullName', $search)
+				->groupEnd();
+		}
+
+		// Menerapkan urutan
+		$builder->orderBy($order, $direction);
+
+		// Mendapatkan jumlah total
+		$total_record = $builder->countAllResults(false);
+		$total_page = ceil($total_record / $limit);
+
+		// Mendapatkan data berdasarkan halaman
+		$data = $builder->limit($limit, $offset)->get()->getResultArray();
+
+		// Menyiapkan respon
+		$response = [
+			"total_record" => $total_record,
+			"per_page" => $limit,
+			"total_page" => $total_page,
+			"current_page" => $page,
+			"result" => [
+				"error" => false,
+				"param" => [
+					"limit" => $limit,
+					"offset" => $offset,
+					"page" => $page,
+					"fields" => $requestedFields,  // Menggunakan field yang diminta awalnya di sini
+					"search" => $search,
+					"order" => $order,
+					"member_id" => $this->request->getVar('member_id') ?? null,
+					"direction" => $direction,
+					"LoanStatus" => $loanStatus,
+				],
+				"data" => $data
+			]
+		];
+
+		return $this->respond($response, 200);
+	}
+
+
+	
+
+
+}
