@@ -199,6 +199,9 @@ Ringkasnya:
 Catatan: SSH di paket ini opsional (hanya untuk `install.sh`/troubleshoot);
 jalur utama cukup browser + File Manager.
 
+Tanpa installer sama sekali (murni tangan): lihat
+`installer/MANUAL-UPLOAD.md` — File Manager + phpMyAdmin langkah per langkah.
+
 ## 8. Batasan yang disadari (tidak diutak-atik)
 
 - Elasticsearch/Sphinx (SLiMS) dan Redis (INLISLite) **tetap mati** — butuh server sendiri, tidak cocok di paket ini.
