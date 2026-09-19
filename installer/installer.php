@@ -425,7 +425,8 @@ if ($action === 'admin') {
     if ($mode === 'both' || $mode === 'inlis') {
         $m = new mysqli($_POST['inlis_db_host'], $_POST['inlis_db_user'], $_POST['inlis_db_pass'], $_POST['inlis_db_name'], (int)$_POST['inlis_db_port']);
         if ($m->connect_error) jout(['ok'=>false,'error'=>'INLIS DB: '.$m->connect_error]);
-        $h = password_hash($p, PASSWORD_DEFAULT);
+        // Myth/Auth: hash = bcrypt(base64(sha384(pass))) — password_hash polos TIDAK bisa login
+        $h = password_hash(base64_encode(hash('sha384', $p, true)), PASSWORD_DEFAULT, ['cost' => 10]);
         $stmt = $m->prepare('UPDATE users SET password_hash=?, username=?, active=1 WHERE id=1');
         $stmt->bind_param('ss', $h, $u);
         $stmt->execute();

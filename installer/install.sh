@@ -62,7 +62,8 @@ if [ "$MODE" = both ] || [ "$MODE" = "inlis" ]; then
   set_kv "$D/.env" security.TOKEN_SECRET "$TOKEN"
   chmod 755 "$D/writable"
   mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" < "$HERE/dist/sql-inlis.sql"
-  H=$(php -r 'echo password_hash($argv[1], PASSWORD_DEFAULT);' "$ADMIN_PASS")
+  # Myth/Auth: hash = bcrypt(base64(sha384(pass))) — password_hash polos TIDAK bisa login
+  H=$(php -r 'echo password_hash(base64_encode(hash("sha384", $argv[1], true)), PASSWORD_DEFAULT, ["cost" => 10]);' "$ADMIN_PASS")
   mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" \
     -e "UPDATE users SET password_hash='$H', username='$ADMIN_USER', active=1 WHERE id=1;"
   echo "INLISLite OK"
