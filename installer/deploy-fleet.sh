@@ -39,6 +39,7 @@ while IFS=$'\t' read -r host ssh_user cpanel_user mode target inlis_url slims_ur
   mode="${mode:-both}"; target="${target:-public_html}"
   ssh_port="${ssh_port:-22}"; slims_sample="${slims_sample:-0}"
   admin_user="${admin_user:-admin}"
+  admin_pass="${admin_pass:-admin}"
   [ "${inlis_url:-}" = "-" ] && inlis_url=""
   [ "${slims_url:-}" = "-" ] && slims_url=""
   case "$mode" in both|inlis|slims) ;;

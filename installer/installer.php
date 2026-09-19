@@ -420,7 +420,7 @@ if ($action === 'admin') {
     $log = [];
     $u = trim($_POST['admin_user']);
     $p = (string)$_POST['admin_pass'];
-    if ($u === '' || strlen($p) < 6) jout(['ok'=>false,'error'=>'admin user/pass minimal 6 karakter']);
+    if ($u === '' || $p === '') jout(['ok'=>false,'error'=>'admin user/pass wajib diisi']);
 
     if ($mode === 'both' || $mode === 'inlis') {
         $m = new mysqli($_POST['inlis_db_host'], $_POST['inlis_db_user'], $_POST['inlis_db_pass'], $_POST['inlis_db_name'], (int)$_POST['inlis_db_port']);
@@ -528,7 +528,8 @@ Lihat <code>DEPLOY-SATU-HOSTING.md</code> untuk langkah cPanel lengkap.</div>
 <fieldset><legend>Admin (diset ke kedua app, id=1)</legend>
 <div class="grid">
 <label>Username <input type="text" name="admin_user" value="admin"></label>
-<label>Password (min 6) <input type="password" name="admin_pass"></label>
+<label>Password <input type="password" name="admin_pass" value="admin"></label>
+<div class="note">Default admin/admin — segera ganti setelah install!</div>
 </div></fieldset>
 <p><button id="btn-go" type="button">2. Install sekarang</button></p>
 <div class="bar"><i id="pbar"></i></div>

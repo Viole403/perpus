@@ -9,7 +9,7 @@
 set -euo pipefail
 
 MODE=both; TARGET="."; SLIMS_SAMPLE=0
-ADMIN_USER=admin; ADMIN_PASS=""
+ADMIN_USER=admin; ADMIN_PASS="admin"
 INLIS_URL=""; INLIS_DB=; INLIS_USER=; INLIS_PASS=; INLIS_HOST=localhost; INLIS_PORT=3306
 SLIMS_URL=""; SLIMS_DB=; SLIMS_USER=; SLIMS_PASS=; SLIMS_HOST=localhost; SLIMS_PORT=3306
 while [ $# -gt 0 ]; do case "$1" in
@@ -30,7 +30,8 @@ need php; need unzip; need mysql
 HERE="$(cd "$(dirname "$0")" && pwd)"
 mycmd() { mysql --protocol=tcp -h"$1" -P"$2" -u"$3" -p"$4" "$5"; }
 
-[ -n "$ADMIN_PASS" ] || { echo "--admin-pass wajib"; exit 2; }
+[ -n "$ADMIN_PASS" ] || ADMIN_PASS="admin"
+[ "$ADMIN_USER" = admin ] && [ "$ADMIN_PASS" = admin ] && echo "PERINGATAN: kredensial default admin/admin — segera ganti setelah install!" >&2
 
 if [ "$MODE" = both ] || [ "$MODE" = "inlis" ]; then
   : "${INLIS_URL:?--inlis-url wajib}" "${INLIS_DB:?--inlis-db wajib}" "${INLIS_USER:?--inlis-user wajib}" "${INLIS_PASS:?--inlis-pass wajib}"

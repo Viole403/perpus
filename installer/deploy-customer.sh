@@ -19,7 +19,7 @@ HOST=""; SSH_USER=""; CPANEL_USER=""; SSH_PORT=22
 INLIS_URL=""; SLIMS_URL=""
 INLIS_DB_SFX=inlisdb; INLIS_USR_SFX=inlisuser; INLIS_PASS=""
 SLIMS_DB_SFX=slimsdb; SLIMS_USR_SFX=slimsuser; SLIMS_PASS=""
-ADMIN_USER=admin; ADMIN_PASS=""
+ADMIN_USER=admin; ADMIN_PASS="admin"
 DO_BUILD=0
 
 usage() { sed -n '2,/^$/p' "$0"; grep -n '^#   ' "$0" | sed 's/^ *[0-9]*:#\{0,1\} //'; }
@@ -36,7 +36,8 @@ while [ $# -gt 0 ]; do case "$1" in
 esac; done
 
 [ -n "$HOST" ] && [ -n "$SSH_USER" ] && [ -n "$CPANEL_USER" ] || { echo "--host, --ssh-user, --cpanel-user wajib"; exit 2; }
-[ -n "$ADMIN_PASS" ] || { echo "--admin-pass wajib"; exit 2; }
+[ -n "$ADMIN_PASS" ] || ADMIN_PASS="admin"
+[ "$ADMIN_USER" = admin ] && [ "$ADMIN_PASS" = admin ] && echo "PERINGATAN: kredensial default admin/admin — segera ganti setelah install!" >&2
 if [ "$MODE" = both ] || [ "$MODE" = inlis ]; then : "${INLIS_URL:?--inlis-url wajib untuk mode $MODE}"; fi
 if [ "$MODE" = both ] || [ "$MODE" = slims ]; then : "${SLIMS_URL:?--slims-url wajib untuk mode $MODE}"; fi
 

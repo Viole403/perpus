@@ -9,7 +9,7 @@ MODE=both; TARGET="public_html"; CPANEL_USER=""; SLIMS_SAMPLE=0
 INLIS_URL=""; SLIMS_URL=""
 INLIS_DB_SFX=inlisdb; INLIS_USR_SFX=inlisuser; INLIS_PASS=""
 SLIMS_DB_SFX=slimsdb; SLIMS_USR_SFX=slimsuser; SLIMS_PASS=""
-ADMIN_USER=admin; ADMIN_PASS=""
+ADMIN_USER=admin; ADMIN_PASS="admin"
 
 while [ $# -gt 0 ]; do case "$1" in
   --mode) MODE="$2"; shift 2;; --target) TARGET="$2"; shift 2;;
