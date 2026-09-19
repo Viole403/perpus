@@ -11,4 +11,5 @@ local/inlis-native.env
 insilite/
 inlislite-laragon-28082026.zip
 installer/dist/
+installer/customers.tsv
 *.log

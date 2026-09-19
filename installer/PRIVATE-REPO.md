@@ -26,6 +26,8 @@ password manager, lalu `history -d`.
 
 Ulangi per customer dengan `--host/--ssh-user/--cpanel-user` berbeda.
 Mode `inlis` / `slims` untuk hosting terpisah.
+Banyak customer: pakai `./installer/deploy-fleet.sh customers.tsv`
+(lihat `SCENARIOS.md` + `customers.tsv.example`).
 
 ## Pilihan B — semi-otomatis tanpa SSH customer
 

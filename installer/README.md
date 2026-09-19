@@ -11,6 +11,10 @@ Deploy INLISLite V3 + SLiMS 9 Bulian ke shared hosting cPanel
 | `install.sh` | Alternatif SSH non-interaktif |
 | `build.sh` | Pembuat artefak `dist/` dari workspace |
 | `dist/` | Artefak: `inlis.zip`, `slims.zip`, `sql-*.sql` (dibuat via `build.sh`, jangan commit manual) |
+| `SCENARIOS.md` | Matriks 3 skenario: 1 web/1 hosting, 2 web/1 hosting, 2 web/2 hosting |
+| `deploy-customer.sh` | Operator-side: kirim + install ke 1 hosting customer via SSH |
+| `deploy-fleet.sh` | Orkestrator multi-hosting dari file TSV |
+| `customers.tsv.example` | Contoh TSV fleet (salin jadi `customers.tsv`, jangan commit) |
 
 ## Alur GitHub (sat set)
 

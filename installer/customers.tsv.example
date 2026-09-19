@@ -1,0 +1,8 @@
+host	ssh_user	cpanel_user	mode	target	inlis_url	slims_url	admin_user	admin_pass	ssh_port	slims_sample
+# Skenario A — 2 web / 1 hosting (mode both)
+cust1.id	cust1	cust1	both	public_html	https://inlis.cust1.id	https://slims.cust1.id	admin	GANTI-PASSWORD-1	22	1
+# Skenario B — 1 web / 1 hosting (mode inlis saja)
+cust2.id	cust2	cust2	inlis	public_html	https://inlis.cust2.id	-	admin	GANTI-PASSWORD-2	22	0
+# Skenario C — 2 web / 2 hosting (dua baris: inlis ke H1, slims ke H2)
+cust3a.id	cust3a	cust3a	inlis	public_html	https://inlis.cust3.id	-	admin	GANTI-PASSWORD-3	22	0
+cust3b.id	cust3b	cust3b	slims	public_html	-	https://slims.cust3.id	admin	GANTI-PASSWORD-3	22	1
