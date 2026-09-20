@@ -167,7 +167,8 @@
         color: #0343A7;
     }
 
-    /* hCaptcha Container Styling */
+    /* Captcha Container Styling (hcaptcha/turnstile/recaptcha) */
+    .captcha-container,
     .hcaptcha-container {
         margin: 24px 0;
         display: flex;
@@ -175,13 +176,13 @@
         align-items: center;
     }
 
-    .h-captcha {
+    .h-captcha, .cf-turnstile, .g-recaptcha {
         transform: scale(0.9);
         transform-origin: center;
     }
 
     @media (max-width: 480px) {
-        .h-captcha {
+        .h-captcha, .cf-turnstile, .g-recaptcha {
             transform: scale(0.8);
         }
     }
@@ -509,21 +510,28 @@
 </div>
 
 <script>
-// hCaptcha callback functions
-function onHcaptchaSuccess(token) {
+// Captcha callback functions (generik: hcaptcha/turnstile/recaptcha).
+// Alias lama onHcaptcha* dipertahankan sementara untuk kompatibilitas.
+function onCaptchaSuccess(token) {
     document.getElementById('loginBtn').disabled = false;
     document.getElementById('captchaStatus').textContent = 'Verifikasi keamanan berhasil.';
 }
 
-function onHcaptchaExpired() {
+function onCaptchaExpired() {
     document.getElementById('loginBtn').disabled = true;
     document.getElementById('captchaStatus').textContent = 'Verifikasi keamanan kedaluwarsa. Silakan verifikasi kembali.';
 }
 
 function onHcaptchaError(error) {
+    onCaptchaError(error);
+}
+function onCaptchaError(error) {
     document.getElementById('loginBtn').disabled = true;
     document.getElementById('captchaStatus').textContent = 'Verifikasi keamanan gagal dimuat. Silakan coba kembali.';
 }
+// Alias lama (kompatibilitas widget lama / cache browser).
+function onHcaptchaSuccess(token) { onCaptchaSuccess(token); }
+function onHcaptchaExpired() { onCaptchaExpired(); }
 
 // Toggle password visibility
 function togglePassword() {
@@ -545,21 +553,23 @@ function togglePassword() {
 // Form submission with loading state
 document.getElementById('loginForm').addEventListener('submit', function(e) {
     <?php $captchaProvider = ($captcha_provider ?? 'off'); ?>
+    <?php $captchaJsObj = ['hcaptcha' => 'hcaptcha', 'turnstile' => 'turnstile', 'recaptcha' => 'grecaptcha'][$captchaProvider] ?? ''; ?>
+    <?php $captchaField = ['hcaptcha' => 'h-captcha-response', 'turnstile' => 'cf-turnstile-response', 'recaptcha' => 'g-recaptcha-response'][$captchaProvider] ?? ''; ?>
     <?php if ($captchaProvider !== 'off'): ?>
-    // Cek apakah hCaptcha sudah dimuat
-    if (typeof hcaptcha === 'undefined') {
-        e.preventDefault();
-        alert('hCaptcha belum dimuat. Silakan refresh halaman dan coba lagi.');
-        return false;
-    }
-
-    const hcaptchaResponse = hcaptcha.getResponse();
-
-    if (!hcaptchaResponse || hcaptchaResponse.length === 0) {
-        e.preventDefault();
-        alert('Harap selesaikan verifikasi hCaptcha terlebih dahulu.');
-        return false;
-    }
+    // Cek token captcha sebelum submit (<?= $captchaProvider ?>).
+    (function () {
+        var obj = window['<?= $captchaJsObj ?>'];
+        var token = '';
+        try {
+            if (obj && typeof obj.getResponse === 'function') token = obj.getResponse() || '';
+        } catch (e) {}
+        if (!token) token = (document.querySelector('[name="<?= $captchaField ?>"]') || {}).value || '';
+        if (!token) {
+            e.preventDefault();
+            alert('Harap selesaikan verifikasi keamanan terlebih dahulu.');
+            return false;
+        }
+    })();
     <?php endif; ?>
     
     const loginBtn = document.getElementById('loginBtn');
@@ -594,12 +604,14 @@ window.addEventListener('load', function() {
     }
 });
 
-// Reset hCaptcha on form reset
+// Reset captcha on form reset
 document.getElementById('loginForm').addEventListener('reset', function() {
-    <?php if (!empty($hcaptcha_site_key)): ?>
-    if (typeof hcaptcha !== 'undefined') {
+    <?php $captchaSiteKey = ($captcha_site_key ?? ($hcaptcha_site_key ?? '')); ?>
+    <?php if (!empty($captchaSiteKey)): ?>
+    <?php $captchaResetObj = ['hcaptcha' => 'hcaptcha', 'turnstile' => 'turnstile', 'recaptcha' => 'grecaptcha'][$captchaProvider] ?? ''; ?>
+    if (typeof <?= $captchaResetObj ?> !== 'undefined') {
         try {
-            hcaptcha.reset();
+            <?= $captchaResetObj ?>.reset();
         } catch (e) {}
     }
     document.getElementById('loginBtn').disabled = true;

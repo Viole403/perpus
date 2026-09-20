@@ -8,7 +8,7 @@
                     <i class="pe-7s-shield icon-gradient bg-strong-bliss"></i>
                 </div>
                 <div>Pengaturan Captcha
-                    <div class="page-title-subheading">hCaptcha login: aktif/nonaktif — verifikasi murni via API sehingga jalan baik NS mengarah ke hosting maupun ke Cloudflare</div>
+                    <div class="page-title-subheading">Captcha login: pilih penyedia — verifikasi murni via API sehingga jalan baik NS mengarah ke hosting maupun ke Cloudflare</div>
                 </div>
             </div>
             <div class="page-title-actions">
@@ -36,6 +36,8 @@
                             <select class="form-control" name="provider">
                                 <option value="off" <?= $provider === 'off' ? 'selected' : '' ?>>Nonaktif (tanpa captcha)</option>
                                 <option value="hcaptcha" <?= $provider === 'hcaptcha' ? 'selected' : '' ?>>hCaptcha</option>
+                                <option value="turnstile" <?= $provider === 'turnstile' ? 'selected' : '' ?>>Cloudflare Turnstile</option>
+                                <option value="recaptcha" <?= $provider === 'recaptcha' ? 'selected' : '' ?>>Google reCAPTCHA v2</option>
                             </select>
                             <small class="text-muted">Nonaktif = login tanpa verifikasi (berguna untuk pengujian / jaringan tertutup).</small>
                         </div>

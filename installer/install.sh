@@ -72,15 +72,21 @@ if [ "$MODE" = both ] || [ "$MODE" = "inlis" ]; then
   # (secret hanya bila diisi). Installer.php punya alur setara.
   if [ -f "$HERE/dist/sql-captcha.sql" ]; then
     mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" < "$HERE/dist/sql-captcha.sql"
-    case "$CAPTCHA_PROVIDER" in off|hcaptcha) :;; *) echo "captcha-provider invalid (off|hcaptcha)"; exit 2;; esac
+    case "$CAPTCHA_PROVIDER" in off|hcaptcha|turnstile|recaptcha) :;; *) echo "captcha-provider invalid (off|hcaptcha|turnstile|recaptcha)"; exit 2;; esac
+    case "$CAPTCHA_PROVIDER" in
+      hcaptcha) ENV_SITE=HCAPTCHA_SITE_KEY; ENV_SECRET=HCAPTCHA_SECRET_KEY;;
+      turnstile) ENV_SITE=TURNSTILE_SITE_KEY; ENV_SECRET=TURNSTILE_SECRET_KEY;;
+      recaptcha) ENV_SITE=RECAPTCHA_SITE_KEY; ENV_SECRET=RECAPTCHA_SECRET_KEY;;
+      *) ENV_SITE=""; ENV_SECRET="";;
+    esac
     mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" \
       -e "INSERT INTO settingparameters (Name, Value) VALUES ('CaptchaProvider', '$CAPTCHA_PROVIDER') ON DUPLICATE KEY UPDATE Value='$CAPTCHA_PROVIDER';"
     [ -n "$CAPTCHA_SITE" ] && mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" \
       -e "INSERT INTO settingparameters (Name, Value) VALUES ('CaptchaSite', '$CAPTCHA_SITE') ON DUPLICATE KEY UPDATE Value='$CAPTCHA_SITE';" \
-      && set_kv "$D/.env" HCAPTCHA_SITE_KEY "$CAPTCHA_SITE"
+      && { [ -n "$ENV_SITE" ] && set_kv "$D/.env" "$ENV_SITE" "$CAPTCHA_SITE"; }
     [ -n "$CAPTCHA_SECRET" ] && mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" \
       -e "INSERT INTO settingparameters (Name, Value) VALUES ('CaptchaSecret', '$CAPTCHA_SECRET') ON DUPLICATE KEY UPDATE Value='$CAPTCHA_SECRET';" \
-      && set_kv "$D/.env" HCAPTCHA_SECRET_KEY "$CAPTCHA_SECRET"
+      && { [ -n "$ENV_SECRET" ] && set_kv "$D/.env" "$ENV_SECRET" "$CAPTCHA_SECRET"; }
   fi
   echo "INLISLite OK"
 fi

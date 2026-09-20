@@ -3,19 +3,75 @@
 /**
  * captcha_helper.php — penyedia captcha terpusat untuk login.
  *
- * Provider: off | hcaptcha.
- * (Varian Cloudflare Turnstile & Google reCAPTCHA ada di branch
- * feature/cloudflare-turnstile.)
+ * Provider: off | hcaptcha | turnstile (Cloudflare) | recaptcha (Google v2).
  *
  * Konfigurasi dibaca dari settingparameters (diatur via menu
  * Pengaturan > Captcha), dengan fallback ke environment:
  *   CaptchaProvider : off | hcaptcha | turnstile | recaptcha
- *   CaptchaSite     : sitekey provider aktif (fallback HCAPTCHA_SITE_KEY)
- *   CaptchaSecret   : secret provider aktif (fallback HCAPTCHA_SECRET_KEY)
+ *   CaptchaSite     : sitekey provider aktif
+ *   CaptchaSecret   : secret provider aktif
+ *
+ * Env fallback per provider (kunci per customer di-installer/.env):
+ *   hcaptcha  → HCAPTCHA_SITE_KEY / HCAPTCHA_SECRET_KEY
+ *   turnstile → TURNSTILE_SITE_KEY / TURNSTILE_SECRET_KEY
+ *   recaptcha → RECAPTCHA_SITE_KEY / RECAPTCHA_SECRET_KEY
  *
  * Semua provider diverifikasi murni via HTTPS API masing-masing,
  * sehingga jalan baik NS domain mengarah ke hosting maupun ke Cloudflare.
+ *
+ * Catatan: ini captcha form login. Proteksi bot/attacker site-wide
+ * (challenge first-visit Cloudflare) adalah lapis terpisah di edge,
+ * bukan di branch ini.
  */
+
+if (!function_exists('captcha_providers')) {
+    /**
+     * Metadata per provider: field POST, endpoint verifikasi, widget.
+     *
+     * @return array<string,array{field:string,verify:string,div:string,script:string,preconnect:string[]}>
+     */
+    function captcha_providers()
+    {
+        return [
+            'hcaptcha' => [
+                'field'      => 'h-captcha-response',
+                'verify'     => 'https://hcaptcha.com/siteverify',
+                'div'        => 'h-captcha',
+                'script'     => 'https://js.hcaptcha.com/1/api.js',
+                'preconnect' => ['https://js.hcaptcha.com'],
+            ],
+            'turnstile' => [
+                'field'      => 'cf-turnstile-response',
+                'verify'     => 'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+                'div'        => 'cf-turnstile',
+                'script'     => 'https://challenges.cloudflare.com/turnstile/v0/api.js',
+                'preconnect' => ['https://challenges.cloudflare.com'],
+            ],
+            'recaptcha' => [
+                'field'      => 'g-recaptcha-response',
+                'verify'     => 'https://www.google.com/recaptcha/api/siteverify',
+                'div'        => 'g-recaptcha',
+                'script'     => 'https://www.google.com/recaptcha/api.js',
+                'preconnect' => ['https://www.google.com', 'https://www.gstatic.com'],
+            ],
+        ];
+    }
+}
+
+if (!function_exists('captcha_env_keys')) {
+    /**
+     * @return array{0:string,1:string}|null [sitekey, secret] atau null bila off/unknown.
+     */
+    function captcha_env_keys($provider)
+    {
+        $map = [
+            'hcaptcha'  => ['HCAPTCHA_SITE_KEY', 'HCAPTCHA_SECRET_KEY'],
+            'turnstile' => ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY'],
+            'recaptcha' => ['RECAPTCHA_SITE_KEY', 'RECAPTCHA_SECRET_KEY'],
+        ];
+        return $map[$provider] ?? null;
+    }
+}
 
 if (!function_exists('captcha_config')) {
     /**
@@ -41,28 +97,31 @@ if (!function_exists('captcha_config')) {
             return null;
         };
 
-        // Env fallback per provider (kunci per customer di-installer/.env).
-        // Catatan: cabang ini hanya mengenal off/hcaptcha; provider lain
-        // (turnstile/recaptcha) ditangani branch feature/cloudflare-turnstile.
-        $envMap = [
-            'hcaptcha'  => ['HCAPTCHA_SITE_KEY', 'HCAPTCHA_SECRET_KEY'],
-            'turnstile' => ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY'],
-            'recaptcha' => ['RECAPTCHA_SITE_KEY', 'RECAPTCHA_SECRET_KEY'],
-        ];
-        $provider = strtolower((string) ($stored('CaptchaProvider') ?? ''));
-        if (!in_array($provider, ['off', 'hcaptcha'], true)) {
-            // Provider default bila belum ada setting DB: hcaptcha bila
-            // secret-nya ada (perilaku lama), selain itu nonaktif.
-            $provider = getenv('HCAPTCHA_SECRET_KEY') ? 'hcaptcha' : 'off';
+        $providers = array_keys(captcha_providers());
+        $provider  = strtolower((string) ($stored('CaptchaProvider') ?? ''));
+        if (!in_array($provider, array_merge(['off'], $providers), true)) {
+            // Belum ada setting DB: tebak dari secret env yang terisi
+            // (perilaku lama: hcaptcha bila secret-nya ada, selain itu off).
+            $provider = 'off';
+            foreach ($providers as $p) {
+                $keys = captcha_env_keys($p);
+                if ($keys && getenv($keys[1])) {
+                    $provider = $p;
+                    break;
+                }
+            }
         }
 
         $site = $stored('CaptchaSite');
-        if ($site === null && $provider !== 'off') {
-            $site = getenv($envMap[$provider][0]);
-        }
         $secret = $stored('CaptchaSecret');
-        if ($secret === null && $provider !== 'off') {
-            $secret = getenv($envMap[$provider][1]);
+        if ($provider !== 'off') {
+            $keys = captcha_env_keys($provider);
+            if ($site === null && $keys) {
+                $site = getenv($keys[0]);
+            }
+            if ($secret === null && $keys) {
+                $secret = getenv($keys[1]);
+            }
         }
 
         $cfg = [
@@ -83,11 +142,13 @@ if (!function_exists('captcha_enabled')) {
 
 if (!function_exists('captcha_response_field')) {
     /**
-     * Nama field POST berisi token hCaptcha.
+     * Nama field POST berisi token, mengikuti provider aktif.
      */
     function captcha_response_field()
     {
-        return 'h-captcha-response';
+        $cfg = captcha_config();
+        $all = captcha_providers();
+        return $all[$cfg['provider']]['field'] ?? 'h-captcha-response';
     }
 }
 
@@ -127,7 +188,7 @@ if (!function_exists('captcha_post_verify')) {
 
 if (!function_exists('captcha_verify')) {
     /**
-     * Verifikasi token hCaptcha. True bila provider nonaktif.
+     * Verifikasi token provider aktif. True bila provider nonaktif.
      */
     function captcha_verify($response = null)
     {
@@ -136,16 +197,21 @@ if (!function_exists('captcha_verify')) {
             return true;
         }
 
+        $all = captcha_providers();
+        if (!isset($all[$cfg['provider']])) {
+            return false;
+        }
+
         if ($response === null) {
             $request = \Config\Services::request();
-            $response = $request->getPost('h-captcha-response');
+            $response = $request->getPost($all[$cfg['provider']]['field']);
         }
 
         if (empty($cfg['secret']) || empty($response)) {
             return false;
         }
 
-        $res = captcha_post_verify('https://hcaptcha.com/siteverify', [
+        $res = captcha_post_verify($all[$cfg['provider']]['verify'], [
             'secret'   => $cfg['secret'],
             'response' => $response,
         ]);
@@ -156,27 +222,47 @@ if (!function_exists('captcha_verify')) {
 
 if (!function_exists('captcha_widget_html')) {
     /**
-     * HTML widget captcha untuk form login ('' bila nonaktif).
-     * Callback onHcaptchaSuccess/Expired/Error dipertahankan untuk hCaptcha.
+     * HTML widget captcha untuk form ('' bila nonaktif / sitekey kosong).
+     * Callback generik onCaptchaSuccess/Expired/Error — dipakai form login;
+     * halaman lain yang tak mendefinisikannya tetap jalan (widget auto-render).
      */
     function captcha_widget_html()
     {
         $cfg = captcha_config();
-        if ($cfg['provider'] === 'off' || empty($cfg['sitekey'])) {
+        $all = captcha_providers();
+        if ($cfg['provider'] === 'off' || empty($cfg['sitekey']) || !isset($all[$cfg['provider']])) {
             return '';
         }
+        $meta = $all[$cfg['provider']];
 
         ob_start();
         ?>
-        <div class="hcaptcha-container" aria-label="Verifikasi keamanan">
-            <div class="h-captcha"
-                 data-sitekey="<?= esc($cfg['sitekey'], 'attr') ?>"
-                 data-callback="onHcaptchaSuccess"
-                 data-expired-callback="onHcaptchaExpired"
-                 data-error-callback="onHcaptchaError"></div>
+        <div class="captcha-container" aria-label="Verifikasi keamanan">
+            <div class="<?= esc($meta['div'], 'attr') ?>"
+                  data-sitekey="<?= esc($cfg['sitekey'], 'attr') ?>"
+                  data-callback="onCaptchaSuccess"
+                  data-expired-callback="onCaptchaExpired"
+                  data-error-callback="onCaptchaError"></div>
         </div>
-        <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+        <script src="<?= esc($meta['script'], 'attr') ?>" async defer></script>
         <?php
         return (string) ob_get_clean();
+    }
+}
+
+if (!function_exists('captcha_preconnect_hosts')) {
+    /**
+     * Host untuk <link rel="preconnect"> di layout login, mengikuti provider.
+     *
+     * @return string[]
+     */
+    function captcha_preconnect_hosts()
+    {
+        $cfg = captcha_config();
+        $all = captcha_providers();
+        if ($cfg['provider'] === 'off' || empty($cfg['sitekey']) || !isset($all[$cfg['provider']])) {
+            return [];
+        }
+        return $all[$cfg['provider']]['preconnect'];
     }
 }

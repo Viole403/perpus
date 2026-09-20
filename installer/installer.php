@@ -471,7 +471,7 @@ if ($action === 'captcha') {
     $log = [];
     if (!isset($tg['inlis'])) jout(['ok'=>false,'error'=>'captcha butuh target inlis (mode both/inlis)']);
     $provider = isset($_POST['captcha_provider']) ? $_POST['captcha_provider'] : 'off';
-    if (!in_array($provider, ['off','hcaptcha'], true)) jout(['ok'=>false,'error'=>'provider captcha invalid']);
+    if (!in_array($provider, ['off', 'hcaptcha', 'turnstile', 'recaptcha'], true)) jout(['ok'=>false,'error'=>'provider captcha invalid']);
     $site = trim((string)($_POST['captcha_site'] ?? ''));
     $secret = trim((string)($_POST['captcha_secret'] ?? ''));
     if (strlen($site) > 255 || strlen($secret) > 255) jout(['ok'=>false,'error'=>'kunci captcha terlalu panjang']);
@@ -513,8 +513,9 @@ if ($action === 'captcha') {
             }
             return rtrim($content, "\r\n") . "\n$key=$val\n";
         };
-        if ($site !== '') $c = $setEnvLine($c, 'HCAPTCHA_SITE_KEY', $site);
-        if ($secret !== '') $c = $setEnvLine($c, 'HCAPTCHA_SECRET_KEY', $secret);
+        $envKeys = ['hcaptcha' => ['HCAPTCHA_SITE_KEY', 'HCAPTCHA_SECRET_KEY'], 'turnstile' => ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY'], 'recaptcha' => ['RECAPTCHA_SITE_KEY', 'RECAPTCHA_SECRET_KEY']][$provider] ?? null;
+        if ($site !== '' && $envKeys) $c = $setEnvLine($c, $envKeys[0], $site);
+        if ($secret !== '' && $envKeys) $c = $setEnvLine($c, $envKeys[1], $secret);
         if (@file_put_contents($envPath, $c, LOCK_EX) === false) jout(['ok'=>false,'error'=>'tidak bisa tulis .env captcha']);
         $log[] = '.env kunci captcha OK';
     }
@@ -586,7 +587,7 @@ Lihat <code>DEPLOY-SATU-HOSTING.md</code> untuk langkah cPanel lengkap.</div>
 </div>
 <details style="margin-top:.5em"><summary>Captcha login (opsional, per customer)</summary>
 <div class="grid">
-<label>Provider <select name="captcha_provider"><option value="off">Nonaktif</option><option value="hcaptcha">hCaptcha</option></select></label>
+<label>Provider <select name="captcha_provider"><option value="off">Nonaktif</option><option value="hcaptcha">hCaptcha</option><option value="turnstile">Cloudflare Turnstile</option><option value="recaptcha">Google reCAPTCHA v2</option></select></label>
 <label>Site key <input type="text" name="captcha_site" placeholder="kosongkan = pakai .env"></label>
 <label>Secret key <input type="password" name="captcha_secret" placeholder="kosongkan = pakai .env"></label>
 </div>

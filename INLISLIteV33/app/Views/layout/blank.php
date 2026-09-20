@@ -20,10 +20,10 @@ $isAuthLogin = !empty($is_auth_login);
     <?php if ($isAuthLogin): ?>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <?php if (!empty($hcaptcha_site_key)): ?>
-            <link rel="preconnect" href="https://js.hcaptcha.com">
-            <link rel="dns-prefetch" href="//newassets.hcaptcha.com">
-        <?php endif; ?>
+        <?php helper('captcha'); $captchaPre = function_exists('captcha_preconnect_hosts') ? captcha_preconnect_hosts() : (!empty($hcaptcha_site_key) ? ['https://js.hcaptcha.com'] : []); ?>
+        <?php foreach ($captchaPre as $captchaHost): ?>
+            <link rel="preconnect" href="<?= esc($captchaHost, 'attr') ?>">
+        <?php endforeach; ?>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="<?= base_url('assets/css/bootstrap.min.css') ?>">
         <link rel="preload" href="<?= base_url('assets/fonts/auth/fa-solid-subset.woff2') ?>" as="font" type="font/woff2" crossorigin>

@@ -23,7 +23,8 @@ public function login()
         helper('captcha');
         $captcha = captcha_config();
         $data['captcha_provider'] = $captcha['provider'];
-        $data['hcaptcha_site_key'] = $captcha['sitekey'];
+        $data['captcha_site_key'] = $captcha['sitekey'];
+        $data['hcaptcha_site_key'] = $captcha['sitekey']; // ponytail: alias lama; hapus setelah view tak memakainya
         $data['is_auth_login'] = true;
 
 		$data['title'] = 'Login INLISLite';
@@ -39,7 +40,7 @@ public function login()
 			// Verifikasi captcha mengikuti Pengaturan > Captcha
 			// (dilewati bila provider nonaktif).
 			helper('captcha');
-			if (!captcha_verify($this->request->getPost('h-captcha-response'))) {
+			if (!captcha_verify($this->request->getPost(captcha_response_field()))) {
 				return redirect()->back()->withInput()->with('error', 'Verifikasi captcha gagal. Silakan coba lagi.');
 			}
 

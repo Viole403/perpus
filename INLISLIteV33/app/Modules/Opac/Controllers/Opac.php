@@ -324,7 +324,11 @@ private function loadRegularCatalogscache()
         $this->data['roweksemplar']     = $roweksemplar;
         $this->data['roweksemplar_drm'] = $roweksemplar_drm;
         $this->data['member_active_loan_collections'] = $member_active_loan_collections;
-        $this->data['hcaptcha_site_key'] = getenv('HCAPTCHA_SITE_KEY');
+        helper('captcha');
+        $opacCaptcha = captcha_config();
+        $this->data['captcha_provider'] = $opacCaptcha['provider'];
+        $this->data['captcha_site_key'] = $opacCaptcha['sitekey'];
+        $this->data['hcaptcha_site_key'] = $opacCaptcha['sitekey']; // ponytail: alias lama; hapus setelah view tak memakainya
 
         return view('Opac\Views\detail', $this->data);
     }
@@ -1783,7 +1787,8 @@ public function browse()
     {
         $username         = trim((string) $this->request->getPost('username'));
         $password         = (string) $this->request->getPost('password');
-        $hcaptchaResponse = $this->request->getPost('h-captcha-response');
+        helper('captcha');
+        $hcaptchaResponse = $this->request->getPost(captcha_response_field());
 
         if (empty($username) || empty($password)) {
             return $this->response->setJSON([

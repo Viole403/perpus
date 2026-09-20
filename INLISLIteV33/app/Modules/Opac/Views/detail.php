@@ -1104,9 +1104,10 @@
                             </div>
                         </div>
 
-                        <?php if (!empty($hcaptcha_site_key)): ?>
+                        <?php $opacCaptchaKey = ($captcha_site_key ?? ($hcaptcha_site_key ?? '')); ?>
+                        <?php if (!empty($opacCaptchaKey) && ($captcha_provider ?? 'hcaptcha') !== 'off'): ?>
                             <div class="d-flex justify-content-center my-3">
-                                <div class="h-captcha" data-sitekey="<?= esc($hcaptcha_site_key) ?>"></div>
+                                <?= captcha_widget_html() ?>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -1120,8 +1121,9 @@
             </div>
         </div>
     </div>
-    <?php if (!empty($hcaptcha_site_key)): ?>
-        <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+    <?php $opacCaptchaKey2 = ($captcha_site_key ?? ($hcaptcha_site_key ?? '')); ?>
+    <?php if (!empty($opacCaptchaKey2) && ($captcha_provider ?? 'hcaptcha') !== 'off'): ?>
+        <?= captcha_widget_html() ?><!-- script widget ikut dari helper; blok terpisah dihapus -->
     <?php endif; ?>
 <?php endif; ?>
 
@@ -1514,9 +1516,15 @@ ER  -
             const formData = new FormData();
             formData.append('username', document.getElementById('memberLoginUsername').value.trim());
             formData.append('password', document.getElementById('memberLoginPassword').value);
-            if (typeof hcaptcha !== 'undefined') {
-                formData.append('h-captcha-response', hcaptcha.getResponse());
-            }
+            <?php $opacCapObj = ['hcaptcha' => 'hcaptcha', 'turnstile' => 'turnstile', 'recaptcha' => 'grecaptcha'][$captcha_provider ?? 'hcaptcha'] ?? 'hcaptcha'; ?>
+            <?php $opacCapField = ['hcaptcha' => 'h-captcha-response', 'turnstile' => 'cf-turnstile-response', 'recaptcha' => 'g-recaptcha-response'][$captcha_provider ?? 'hcaptcha'] ?? 'h-captcha-response'; ?>
+            (function () {
+                var obj = window['<?= $opacCapObj ?>'];
+                var token = '';
+                try { if (obj && typeof obj.getResponse === 'function') token = obj.getResponse() || ''; } catch (e) {}
+                if (!token) token = (document.querySelector('[name="<?= $opacCapField ?>"]') || {}).value || '';
+                if (token) formData.append('<?= $opacCapField ?>', token);
+            })();
 
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Memproses...';
@@ -1533,9 +1541,7 @@ ER  -
                         if (pdfTab) pdfTab.close();
                         alertBox.textContent = data.message || 'Login gagal. Silakan coba lagi.';
                         alertBox.classList.remove('d-none');
-                        if (typeof hcaptcha !== 'undefined') {
-                            try { hcaptcha.reset(); } catch (e) {}
-                        }
+                        (function () { var obj = window['<?= $opacCapObj ?>']; if (obj && typeof obj.reset === 'function') { try { obj.reset(); } catch (e) {} } })();
                         submitBtn.disabled = false;
                         submitBtn.innerHTML = originalBtnHtml;
                         return;
