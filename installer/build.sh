@@ -51,6 +51,36 @@ cp -f local/inlislite_v33-mariadb.sql "$DIST/sql-inlis.sql"
 cp -f slims9_bulian/install/senayan.sql "$DIST/sql-slims-schema.sql"
 cp -f slims9_bulian/install/sampledata.sql "$DIST/sql-slims-sample.sql"
 
+echo "== mixcode (opsional) =="
+MIXPKG=tmp/label_mixcode_color_inlislite
+if [ -d "$MIXPKG/src" ]; then
+  MXSTAGE=$(mktemp -d)
+  mkdir -p "$MXSTAGE/overlay/app/Modules/SubModule/Eksemplar/Views/template"
+  mkdir -p "$MXSTAGE/overlay/app/Modules/SubModule/Administrasi/PengaturanKatalog"
+  mkdir -p "$MXSTAGE/patches"
+  cp -f "$MIXPKG"/src/template/cetak-label-a4-mix-*.php \
+        "$MIXPKG"/src/template/cetak-label-mix-*.php \
+        "$MIXPKG"/src/template/_mixcode_functions.php \
+    "$MXSTAGE/overlay/app/Modules/SubModule/Eksemplar/Views/template/"
+  cp -r "$MIXPKG/src/Module/LabelMixcode" \
+    "$MXSTAGE/overlay/app/Modules/SubModule/Administrasi/PengaturanKatalog/"
+  cp -f "$MIXPKG"/patches/01-mixlabel-controller.diff \
+        "$MIXPKG"/patches/02a-dropdown-slug.diff \
+        "$MIXPKG"/patches-installer/02c-dropdown-list-canonical.diff \
+        "$MIXPKG"/patches-installer/03-exemplar-list-js.diff \
+    "$MXSTAGE/patches/"
+  (cd "$MXSTAGE" && zip -qr "$OLDPWD/$DIST/mixcode.zip" .)
+  cat "$MIXPKG"/seeds/00-header.sql \
+      "$MIXPKG"/seeds/fix-datatable-ispopuler.sql \
+      "$MIXPKG"/seeds/mixcode_warna.sql \
+      "$MIXPKG"/seeds/labelmixcode_permissions.sql \
+      "$MIXPKG"/seeds/labelmixcode_menu.sql > "$DIST/sql-mixcode.sql"
+  rm -rf "$MXSTAGE"
+  echo "mixcode.zip + sql-mixcode.sql OK"
+else
+  echo "SKIP mixcode (tmp/label_mixcode_color_inlislite/src tak ada)"
+fi
+
 echo "== split >100MB =="
 for f in "$DIST"/*.zip; do
   sz=$(stat -c%s "$f")

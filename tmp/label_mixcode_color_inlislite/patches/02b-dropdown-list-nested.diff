@@ -1,0 +1,152 @@
+diff --git a/app/Modules/SubModule/Eksemplar/Views/list.php b/app/Modules/SubModule/Eksemplar/Views/list.php
+index 6835c289..660687b4 100644
+--- a/app/Modules/SubModule/Eksemplar/Views/list.php
++++ b/app/Modules/SubModule/Eksemplar/Views/list.php
+@@ -45,6 +45,10 @@ $paper_size_config = [
+             'cetak-label-a4-10'      => 'Model A4-10 (No. Panggil + 2x Barcode + Cabang)',
+             'cetak-label-a4-11'      => 'Model A4-11 (No. Panggil + 3 Digit Warna Kelas, Tanpa Barcode)',
+             'cetak-label-a4-12'      => 'Model A4-12 (Judul + Barcode, 24 Label/Halaman)',
++            // Label Mixcode Warna (port plugin SLiMS label_mixcode_color_slims)
++            'cetak-label-a4-mix-left'  => 'Model Mix-Left (Barcode Kiri + No. Panggil + Warna Kelas)',
++            'cetak-label-a4-mix-right' => 'Model Mix-Right (No. Panggil + Barcode Kanan + Warna Kelas)',
++            'cetak-label-a4-mix-both'  => 'Model Mix-Both (Barcode Kiri-Kanan + No. Panggil + Warna Kelas)',
+             // QR Code – fitur baru yang dipertahankan
+             'cetak-label-a4-4-qrcode' => 'Model A4-QR (QR Code + No. Panggil)',
+         ],
+@@ -102,7 +106,23 @@ $paper_size_config = [
+ ];
+ 
+ // Encode ke JSON agar bisa dikonsumsi JavaScript tanpa request AJAX tambahan
++
+ $paper_size_json = json_encode($paper_size_config, JSON_UNESCAPED_UNICODE);
++
++// Daftar nama label klasifikasi untuk dropdown Model (server-side agar
++// tak bergantung fetch async): [{"kode": "000", "label": "000 – 099.999 ..."}].
++$mix_labels = [];
++foreach (db_connect()->table('master_kelas_besar')->select('KdKelas, namakelas')->where('active', 1)->orderBy('KdKelas', 'ASC')->get()->getResultArray() as $mixRow) {
++    $mixKode = (string) $mixRow['KdKelas'];
++    if (preg_match('/^(\d)00$/', $mixKode, $mixM)) {
++        $mixRange = $mixM[1] . '00 – ' . $mixM[1] . '99.999';
++    } else {
++        $mixRange = $mixKode;
++    }
++    $mixSubject = preg_replace('/^\d+\s*-\s*/', '', (string) ($mixRow['namakelas'] ?? ''));
++    $mix_labels[] = ['kode' => $mixKode, 'label' => trim($mixRange . ' ' . $mixSubject)];
++}
++$mix_labels_json = json_encode($mix_labels, JSON_UNESCAPED_UNICODE);
+ ?>
+ <?= $this->extend('App\Views\layout\main'); ?>
+ 
+@@ -116,6 +136,30 @@ $paper_size_json = json_encode($paper_size_config, JSON_UNESCAPED_UNICODE);
+         white-space: nowrap;
+         font-size  : 13px;
+     }
++    /* Jeda tegas antara baris Pilih Aksi dan panel opsi cetak */
++    #cetak_panel {
++        margin-top: 14px;
++    }
++    /* Samakan tinggi semua select + tombol Proses di panel aksi */
++    .card-footer .input-group > select.form-control,
++    .card-footer .input-group-prepend > .btn,
++    #action,
++    #btnProcess2 {
++        height     : 38px !important;
++        font-size  : 13px;
++    }
++    .card-footer .input-group > select.form-control,
++    #action {
++        padding-top   : 0;
++        padding-bottom: 0;
++        line-height   : 38px;
++    }
++    /* Jarak antar kontrol baris opsi cetak (tidak mengandalkan gap saja) */
++    #cetak_panel > div.d-flex > .input-group,
++    #cetak_panel > div.d-flex > #btnProcess2 {
++        margin-right : 6px;
++        margin-bottom: 6px;
++    }
+ </style>
+ <?= $this->endSection('style'); ?>
+ 
+@@ -179,14 +223,14 @@ $paper_size_json = json_encode($paper_size_config, JSON_UNESCAPED_UNICODE);
+                     </select>
+                 </div>
+ 
+-                <button class="btn btn-primary" id="btnProcess2" type="button" style="height:38px; padding: 0 16px; flex-shrink:0;">
++                <button class="btn btn-primary" id="btnProcess2" type="button" style="height:38px; padding: 0 16px; flex-shrink:0; margin-right:8px;">
+                     <i class="fa fa-check"></i> Proses
+                 </button>
+             </div>
+ 
+             <!-- ── Baris 2: Opsi Cetak (muncul jika aksi = Cetak Label) ── -->
+             <div id="cetak_panel" style="display:none; padding: 8px 0 4px 0;">
+-                <div class="d-flex align-items-center flex-wrap" style="gap:6px;">
++                <div class="d-flex align-items-start flex-wrap" style="margin-top:6px; border-top:1px solid #e9ecef; padding-top:10px;">
+ 
+                     <!-- Jenis Kertas -->
+                     <div class="input-group" style="width:280px; flex-shrink:0;">
+@@ -331,6 +375,7 @@ $(document).ready(function () {
+ 
+     // ── Konfigurasi kertas & model (di-inject dari PHP) ────────────────────
+     var paperSizeConfig = <?= $paper_size_json ?>;
++    var mixLabels = <?= $mix_labels_json ?>;
+ 
+     // ── DataTable ─────────────────────────────────────────────────────────
+     var t = $('#tbl_data').DataTable({
+@@ -476,9 +521,13 @@ $(document).ready(function () {
+     $('#action').on('change', function () {
+         if ($(this).val() === 'cetak-label') {
+             $('#cetak_panel').slideDown(200);
++            // Pindahkan tombol Proses ke ujung kanan baris opsi cetak
++            $('#btnProcess2').appendTo('#cetak_panel > div.d-flex').css('margin-left', 'auto');
+         } else {
+             $('#cetak_panel').slideUp(200);
+             resetCetakPanel();
++            // Kembalikan tombol Proses ke baris aksi
++            $('#btnProcess2').css('margin-left', '').insertAfter($('#action').closest('.input-group'));
+         }
+     });
+ 
+@@ -522,13 +571,41 @@ $(document).ready(function () {
+         var paperText = $('#paper_size').find('option:selected').text();
+ 
+         if ($(this).val()) {
+-            $('#model_info_text').text(paperText + '  →  ' + modelText);
++            var paperHidden = !$('#paper_size').closest('.input-group').is(':visible');
++            $('#model_info_text').text(paperHidden ? modelText : paperText + '  →  ' + modelText);
+             $('#model_info_row').show();
+         } else {
+             $('#model_info_row').hide();
+         }
+     });
+ 
++    // ── Label Mixcode: dropdown Model berisi daftar nama label
++    // klasifikasi (Rentang + Subjek) ──────────────────
++    function fillMixLabels() {
++        if (!mixLabels || !mixLabels.length) return;
++        if (!$('#paper_size').val()) {
++            return;
++        }
++        var $model = $('#label_model');
++        var current = $model.val();
++        $model.html('<option value="">-- Pilih Label --</option>');
++        $.each(mixLabels, function (i, item) {
++            $model.append($('<option>', { value: 'mixcode:' + item.kode, text: item.label }));
++        });
++        // Kembalikan pilihan bila masih ada (mis. sesudah ganti kertas).
++        if (current && $model.find('option[value="' + current + '"]').length) {
++            $model.val(current);
++        }
++        $('#label_model_wrapper').show();
++        $model.trigger('change');
++    }
++    // Isi awal + timpa ulang setiap ganti kertas (handler bawaan
++    // mengisi ulang model bawaan, jadi daftar label dipasang sesudahnya).
++    $('#paper_size').off('change.mixlabel').on('change.mixlabel', function () {
++        setTimeout(fillMixLabels, 0);
++    });
++    fillMixLabels();
++
+     // ── Tombol Proses ─────────────────────────────────────────────────────
+     $('#btnProcess2').on('click', function () {
+         var action       = $('#action').val();

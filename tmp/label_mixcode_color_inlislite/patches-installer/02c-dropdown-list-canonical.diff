@@ -1,0 +1,43 @@
+--- a/app/Modules/SubModule/Eksemplar/Views/list.php
++++ b/app/Modules/SubModule/Eksemplar/Views/list.php
+@@ -45,6 +45,10 @@
+             'cetak-label-a4-10'      => 'Model A4-10 (No. Panggil + 2x Barcode + Cabang)',
+             'cetak-label-a4-11'      => 'Model A4-11 (No. Panggil + 3 Digit Warna Kelas, Tanpa Barcode)',
+             'cetak-label-a4-12'      => 'Model A4-12 (Judul + Barcode, 24 Label/Halaman)',
++            // Label Mixcode Warna
++            'cetak-label-a4-mix-left'  => 'Model Mix-Left (Barcode Kiri + No. Panggil + Warna Kelas)',
++            'cetak-label-a4-mix-right' => 'Model Mix-Right (No. Panggil + Barcode Kanan + Warna Kelas)',
++            'cetak-label-a4-mix-both'  => 'Model Mix-Both (Barcode Kiri-Kanan + No. Panggil + Warna Kelas)',
+             // QR Code – fitur baru yang dipertahankan
+             'cetak-label-a4-4-qrcode' => 'Model A4-QR (QR Code + No. Panggil)',
+         ],
+@@ -539,6 +543,21 @@
+ 
+ <?= $this->endSection('page'); ?>
+ 
++<?php
++// Label Mixcode: daftar nama label klasifikasi untuk dropdown Model.
++$mix_labels = [];
++foreach (db_connect()->table('master_kelas_besar')->select('KdKelas, namakelas')->where('active', 1)->orderBy('KdKelas', 'ASC')->get()->getResultArray() as $mixRow) {
++    $mixKode = (string) $mixRow['KdKelas'];
++    if (preg_match('/^(\d)00$/', $mixKode, $mixM)) {
++        $mixRange = $mixM[1] . '00 – ' . $mixM[1] . '99.999';
++    } else {
++        $mixRange = $mixKode;
++    }
++    $mixSubject = preg_replace('/^\d+\s*-\s*/', '', (string) ($mixRow['namakelas'] ?? ''));
++    $mix_labels[] = ['kode' => $mixKode, 'label' => trim($mixRange . ' ' . $mixSubject)];
++}
++?>
++
+ <?= $this->section('script'); ?>
+ <script>
+ window.exemplarListConfig = <?= json_encode([
+@@ -547,6 +566,7 @@
+     'roomsUrl' => site_url('api/eksemplar/locations'),
+     'mediaUrl' => site_url('api/eksemplar/collectionmedias'),
+     'paperSizes' => $paper_size_config,
++    'mixLabels' => $mix_labels,
+     'csrfName' => csrf_token(),
+     'csrfHash' => csrf_hash(),
+     'actions' => [

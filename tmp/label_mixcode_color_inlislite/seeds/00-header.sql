@@ -1,0 +1,11 @@
+-- sql-mixcode.sql — digabung otomatis oleh installer/build.sh dari:
+--   1. seeds/fix-datatable-ispopuler.sql
+--   2. seeds/mixcode_warna.sql
+--   3. seeds/labelmixcode_permissions.sql
+--   4. seeds/labelmixcode_menu.sql
+-- (JANGAN edit file ini langsung; ubah sumbernya lalu rebuild.)
+-- Aman dijalankan ulang: INSERT memakai WHERE NOT EXISTS.
+-- CATATAN: statement ALTER di bawah gagal dengan error 1060 bila kolom
+-- sudah ada (mis. install ulang) — itu normal, abaikan; statement
+-- berikutnya tetap jalan. Di installer.php error 1060 otomatis diabaikan,
+-- di install.sh/cli pakai `mysql --force`.

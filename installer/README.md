@@ -7,10 +7,11 @@ Deploy INLISLite V3 + SLiMS 9 Bulian ke shared hosting cPanel
 
 | File | Fungsi |
 |---|---|
-| `installer.php` | Installer web single-file (utama, tanpa SSH) |
-| `install.sh` | Alternatif SSH non-interaktif |
+| `install.sh` | Alternatif SSH non-interaktif (`--mixcode` = terapkan Label Mixcode) |
+| `installer.php` | Installer web single-file (utama, tanpa SSH; checkbox Label Mixcode) |
+| `apply-mixcode.php` | Pemasang Label Mixcode (dipakai keduanya; bisa mandiri via CLI) |
 | `build.sh` | Pembuat artefak `dist/` dari workspace |
-| `dist/` | Artefak: `inlis.zip`, `slims.zip`, `sql-*.sql` (dibuat via `build.sh`, jangan commit manual) |
+| `dist/` | Artefak: `inlis.zip`, `slims.zip`, `sql-*.sql`, `mixcode.zip` (dibuat via `build.sh`, jangan commit manual) |
 | `SETUP-PC-BARU.md` | Checklist end-to-end: mesin fresh → hosting baru |
 | `SCENARIOS.md` | Matriks 3 skenario: 1 web/1 hosting, 2 web/1 hosting, 2 web/2 hosting |
 | `MANUAL-UPLOAD.md` | Panduan upload manual tanpa installer/SSH (File Manager + phpMyAdmin) |
@@ -29,6 +30,23 @@ Deploy INLISLite V3 + SLiMS 9 Bulian ke shared hosting cPanel
 
 Dua hosting terpisah: ulangi langkah 3–5 per hosting dengan mode
 `inlis` / `slims` (hanya artefak app itu yang perlu diupload).
+
+## Label Mixcode Warna (patch opsional)
+
+Template label barcode warna + menu Pengaturan > Label Mixcode
+(10 warna DDC, posisi barcode, judul, header). Isi paket sumber ada di
+`tmp/label_mixcode_color_inlislite/` (src + patches + seeds + bukti uji).
+
+- Fresh install: centang **Label Mixcode** di installer web, atau
+  `./install.sh ... --mixcode` untuk SSH. SQL-nya idempoten; user wajib
+  logout+login ulang agar menu muncul.
+- Inlislite existing (customer A/B/C/D beda fitur): upload
+  `mixcode.zip` + `apply-mixcode.php`, lalu di folder app:
+  `php apply-mixcode.php --app-dir=. --zip=mixcode.zip`
+  dilanjut import `sql-mixcode.sql` via phpMyAdmin (abaikan error 1060
+  bila kolom sudah ada), lalu logout+login ulang.
+- Pola ini (zip overlay + patch terverifikasi + sql idempoten + sentinel
+  versi) dipakai ulang untuk tiap fitur per-customer berikutnya.
 
 ## Prasyarat hosting
 

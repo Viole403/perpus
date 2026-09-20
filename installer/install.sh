@@ -8,7 +8,7 @@
 # Contoh hosting terpisah: --mode inlis ... (argumen slims diabaikan) dan sebaliknya.
 set -euo pipefail
 
-MODE=both; TARGET="."; SLIMS_SAMPLE=0
+MODE=both; TARGET="."; SLIMS_SAMPLE=0; MIXCODE=0
 ADMIN_USER=admin; ADMIN_PASS="admin"
 INLIS_URL=""; INLIS_DB=; INLIS_USER=; INLIS_PASS=; INLIS_HOST=localhost; INLIS_PORT=3306
 SLIMS_URL=""; SLIMS_DB=; SLIMS_USER=; SLIMS_PASS=; SLIMS_HOST=localhost; SLIMS_PORT=3306
@@ -21,6 +21,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --slims-user) SLIMS_USER="$2"; shift 2;; --slims-pass) SLIMS_PASS="$2"; shift 2;;
   --slims-host) SLIMS_HOST="$2"; shift 2;; --slims-port) SLIMS_PORT="$2"; shift 2;;
   --slims-sample) SLIMS_SAMPLE=1; shift;;
+  --mixcode) MIXCODE=1; shift;;
   --admin-user) ADMIN_USER="$2"; shift 2;; --admin-pass) ADMIN_PASS="$2"; shift 2;;
   *) echo "argumen tak dikenal: $1"; exit 2;;
 esac; done
@@ -67,6 +68,17 @@ if [ "$MODE" = both ] || [ "$MODE" = "inlis" ]; then
   mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" \
     -e "UPDATE users SET password_hash='$H', username='$ADMIN_USER', active=1 WHERE id=1;"
   echo "INLISLite OK"
+fi
+
+if [ "$MIXCODE" = 1 ] && { [ "$MODE" = both ] || [ "$MODE" = inlis ]; }; then
+  echo "== Label Mixcode (opsional) =="
+  D="$TARGET/inlis"
+  [ -f "$HERE/dist/mixcode.zip" ] || { echo "FATAL: dist/mixcode.zip tak ada — jalankan build.sh dulu"; exit 1; }
+  [ -f "$HERE/dist/sql-mixcode.sql" ] || { echo "FATAL: dist/sql-mixcode.sql tak ada — jalankan build.sh dulu"; exit 1; }
+  php "$HERE/apply-mixcode.php" --app-dir="$D" --zip="$HERE/dist/mixcode.zip"
+  # --force: ALTER ISPopuler boleh gagal (1060) bila kolom sudah ada; lanjutkan sisanya
+  mysql --protocol=tcp --force -h"$INLIS_HOST" -P"$INLIS_PORT" -u"$INLIS_USER" -p"$INLIS_PASS" "$INLIS_DB" < "$HERE/dist/sql-mixcode.sql"
+  echo "Label Mixcode OK (user wajib logout+login ulang di app agar menu muncul)"
 fi
 
 if [ "$MODE" = both ] || [ "$MODE" = "slims" ]; then

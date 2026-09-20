@@ -1,0 +1,17 @@
+--- a/public/assets/js/exemplar-list.js
++++ b/public/assets/js/exemplar-list.js
+@@ -255,10 +255,12 @@
+     byId('paper_size').addEventListener('change', function () {
+         const paper = config.paperSizes[this.value];
+         const models = byId('label_model');
+-        models.replaceChildren(new Option('-- Pilih Model --', ''));
++        const mix = (config.mixLabels && config.mixLabels.length) ? config.mixLabels : null;
++        models.replaceChildren(new Option(mix ? '-- Pilih Label --' : '-- Pilih Model --', ''));
+         byId('model_info_row').style.display = 'none';
+         byId('label_model_wrapper').style.display = paper ? '' : 'none';
+-        if (paper) Object.entries(paper.models).forEach(([value, label]) => models.appendChild(new Option(label, value)));
++        const items = mix ? mix.map(m => ['mixcode:' + m.kode, m.label]) : (paper ? Object.entries(paper.models) : []);
++        items.forEach(([value, label]) => models.appendChild(new Option(label, value)));
+     });
+     byId('label_model').addEventListener('change', function () {
+         byId('model_info_row').style.display = this.value ? '' : 'none';

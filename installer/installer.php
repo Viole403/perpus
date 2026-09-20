@@ -308,8 +308,8 @@ if ($action === 'extract') {
 }
 
 if ($action === 'import') {
-    $which = $_POST['which']; // inlis | slims_schema | slims_sample
-    $map = ['inlis'=>'sql-inlis.sql','slims_schema'=>'sql-slims-schema.sql','slims_sample'=>'sql-slims-sample.sql'];
+    $which = $_POST['which']; // inlis | slims_schema | slims_sample | mixcode
+    $map = ['inlis'=>'sql-inlis.sql','slims_schema'=>'sql-slims-schema.sql','slims_sample'=>'sql-slims-sample.sql','mixcode'=>'sql-mixcode.sql'];
     if (!isset($map[$which])) jout(['ok'=>false,'error'=>'which invalid']);
     $st = state_load();
     $key = 'imp_' . $which;
@@ -322,7 +322,12 @@ if ($action === 'import') {
     $total = filesize($file);
     $finished = sql_import_chunk($m, $file, $st[$key]);
     state_save($st);
-    $err = $st[$key]['errors'];
+    // Import mixcode mentolerir error 1060 (kolom ISPopuler sudah ada = install ulang).
+    $err = array_values(array_filter($st[$key]['errors'], function ($e) use ($which) {
+        if ($which === 'mixcode' && stripos($e, 'Duplicate column') !== false) return false;
+        if ($which === 'mixcode' && strpos($e, '1060') !== false) return false;
+        return true;
+    }));
     if ($err) jout(['ok'=>false,'error'=>implode("\n",$err),'stmt'=>$st[$key]['stmt']]);
     jout(['ok'=>true,'done'=>$finished,'stmt'=>$st[$key]['stmt'],
         'progress'=>$total>0?round(100*$st[$key]['offset']/$total,1):0]);
@@ -453,6 +458,21 @@ if ($action === 'admin') {
     jout(['ok'=>true,'log'=>$log]);
 }
 
+if ($action === 'mixcode') {
+    $st = state_load();
+    $tg = $st['targets'];
+    $log = [];
+    if (!isset($tg['inlis'])) jout(['ok'=>false,'error'=>'mixcode butuh target inlis (mode both/inlis)']);
+    $base = INST_DIR . '/' . $tg['inlis'];
+    $zip = join_parts('mixcode.zip', $log);
+    if ($zip === null) jout(['ok'=>false,'error'=>'mixcode.zip tidak ditemukan','log'=>$log]);
+    require_once __DIR__ . '/apply-mixcode.php';
+    $r = mixcode_install($base, INST_DIR . '/' . $zip);
+    if (!$r['ok']) jout(['ok'=>false,'error'=>$r['error']]);
+    $log = array_merge($log, $r['log']);
+    jout(['ok'=>true,'log'=>$log]);
+}
+
 if ($action === 'finish') {
     $log = [];
     if (!empty($_POST['cleanup']) && $_POST['cleanup'] === '1') {
@@ -515,7 +535,9 @@ Lihat <code>DEPLOY-SATU-HOSTING.md</code> untuk langkah cPanel lengkap.</div>
 <label>DB user <input type="text" name="inlis_db_user"></label>
 <label>DB pass <input type="password" name="inlis_db_pass"></label>
 <label>DB port <input type="number" name="inlis_db_port" value="3306"></label>
-</div></fieldset>
+</div>
+<label><input type="checkbox" name="mixcode" value="1" checked> Label Mixcode Warna (patch opsional: template + menu + warna DDC)</label>
+</fieldset>
 <fieldset id="fs-slims"><legend>SLiMS</legend>
 <label><input type="checkbox" name="slims_sample" value="1" checked> Import sample data</label>
 <div class="grid">
@@ -566,6 +588,13 @@ log('== config ==');
 j=await post({action:'config'});if(!j.ok){log('GAGAL: '+j.error);return;}j.log.forEach(log);
 log('== admin ==');
 j=await post({action:'admin'});if(!j.ok){log('GAGAL: '+j.error);return;}j.log.forEach(log);
+if(mode!=='slims'&&$('f').mixcode.checked){
+log('== mixcode files+patch ==');
+j=await post({action:'mixcode'});if(!j.ok){log('GAGAL: '+j.error);return;}j.log.forEach(log);
+log('== mixcode sql ==');
+const f2=$('f');await importLoop('mixcode',{db_host:f2.inlis_db_host.value,db_user:f2.inlis_db_user.value,db_pass:f2.inlis_db_pass.value,db_name:f2.inlis_db_name.value,db_port:f2.inlis_db_port.value},'mixcode');
+log('CATATAN mixcode: user wajib logout+login ulang agar menu muncul.');
+}
 $('pbar').style.width='100%';log('SELESAI. Cek URL kedua app, lalu Finish.');
 }catch(e){log('Berhenti karena error. Perbaiki lalu klik Install lagi (import resume otomatis).');}};
 $('btn-finish').onclick=async()=>{const j=await post({action:'finish',cleanup:$('cleanup').checked?'1':'0'});
