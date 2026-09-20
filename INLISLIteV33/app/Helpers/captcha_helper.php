@@ -41,23 +41,28 @@ if (!function_exists('captcha_config')) {
             return null;
         };
 
+        // Env fallback per provider (kunci per customer di-installer/.env).
+        // Catatan: cabang ini hanya mengenal off/hcaptcha; provider lain
+        // (turnstile/recaptcha) ditangani branch feature/cloudflare-turnstile.
+        $envMap = [
+            'hcaptcha'  => ['HCAPTCHA_SITE_KEY', 'HCAPTCHA_SECRET_KEY'],
+            'turnstile' => ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY'],
+            'recaptcha' => ['RECAPTCHA_SITE_KEY', 'RECAPTCHA_SECRET_KEY'],
+        ];
         $provider = strtolower((string) ($stored('CaptchaProvider') ?? ''));
         if (!in_array($provider, ['off', 'hcaptcha'], true)) {
-            $secretProbe = $stored('CaptchaSecret');
-            if ($secretProbe === null) {
-                $secretProbe = getenv('HCAPTCHA_SECRET_KEY');
-            }
-            // Perilaku lama: menegakkan captcha bila secret terisi.
-            $provider = !empty($secretProbe) ? 'hcaptcha' : 'off';
+            // Provider default bila belum ada setting DB: hcaptcha bila
+            // secret-nya ada (perilaku lama), selain itu nonaktif.
+            $provider = getenv('HCAPTCHA_SECRET_KEY') ? 'hcaptcha' : 'off';
         }
 
         $site = $stored('CaptchaSite');
-        if ($site === null) {
-            $site = getenv('HCAPTCHA_SITE_KEY');
+        if ($site === null && $provider !== 'off') {
+            $site = getenv($envMap[$provider][0]);
         }
         $secret = $stored('CaptchaSecret');
-        if ($secret === null) {
-            $secret = getenv('HCAPTCHA_SECRET_KEY');
+        if ($secret === null && $provider !== 'off') {
+            $secret = getenv($envMap[$provider][1]);
         }
 
         $cfg = [

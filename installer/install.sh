@@ -10,6 +10,7 @@ set -euo pipefail
 
 MODE=both; TARGET="."; SLIMS_SAMPLE=0
 ADMIN_USER=admin; ADMIN_PASS="admin"
+CAPTCHA_PROVIDER=off; CAPTCHA_SITE=""; CAPTCHA_SECRET=""
 INLIS_URL=""; INLIS_DB=; INLIS_USER=; INLIS_PASS=; INLIS_HOST=localhost; INLIS_PORT=3306
 SLIMS_URL=""; SLIMS_DB=; SLIMS_USER=; SLIMS_PASS=; SLIMS_HOST=localhost; SLIMS_PORT=3306
 while [ $# -gt 0 ]; do case "$1" in
@@ -21,6 +22,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --slims-user) SLIMS_USER="$2"; shift 2;; --slims-pass) SLIMS_PASS="$2"; shift 2;;
   --slims-host) SLIMS_HOST="$2"; shift 2;; --slims-port) SLIMS_PORT="$2"; shift 2;;
   --slims-sample) SLIMS_SAMPLE=1; shift;;
+  --captcha-provider) CAPTCHA_PROVIDER="$2"; shift 2;; --captcha-site) CAPTCHA_SITE="$2"; shift 2;; --captcha-secret) CAPTCHA_SECRET="$2"; shift 2;;
   --admin-user) ADMIN_USER="$2"; shift 2;; --admin-pass) ADMIN_PASS="$2"; shift 2;;
   *) echo "argumen tak dikenal: $1"; exit 2;;
 esac; done
@@ -28,7 +30,7 @@ esac; done
 need() { command -v "$1" >/dev/null || { echo "butuh: $1"; exit 1; }; }
 need php; need unzip; need mysql
 HERE="$(cd "$(dirname "$0")" && pwd)"
-mycmd() { mysql --protocol=tcp -h"$1" -P"$2" -u"$3" -p"$4" "$5"; }
+mycmd() { local h="$1" p="$2" u="$3" pw="$4" db="$5"; shift 5; mysql --protocol=tcp -h"$h" -P"$p" -u"$u" -p"$pw" "$db" "$@"; }
 
 [ -n "$ADMIN_PASS" ] || ADMIN_PASS="admin"
 [ "$ADMIN_USER" = admin ] && [ "$ADMIN_PASS" = admin ] && echo "PERINGATAN: kredensial default admin/admin — segera ganti setelah install!" >&2
@@ -66,6 +68,20 @@ if [ "$MODE" = both ] || [ "$MODE" = "inlis" ]; then
   H=$(php -r 'echo password_hash(base64_encode(hash("sha384", $argv[1], true)), PASSWORD_DEFAULT, ["cost" => 10]);' "$ADMIN_PASS")
   mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" \
     -e "UPDATE users SET password_hash='$H', username='$ADMIN_USER', active=1 WHERE id=1;"
+  # Captcha login per customer: seed menu+permission, lalu tulis setting
+  # (secret hanya bila diisi). Installer.php punya alur setara.
+  if [ -f "$HERE/dist/sql-captcha.sql" ]; then
+    mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" < "$HERE/dist/sql-captcha.sql"
+    case "$CAPTCHA_PROVIDER" in off|hcaptcha) :;; *) echo "captcha-provider invalid (off|hcaptcha)"; exit 2;; esac
+    mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" \
+      -e "INSERT INTO settingparameters (Name, Value) VALUES ('CaptchaProvider', '$CAPTCHA_PROVIDER') ON DUPLICATE KEY UPDATE Value='$CAPTCHA_PROVIDER';"
+    [ -n "$CAPTCHA_SITE" ] && mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" \
+      -e "INSERT INTO settingparameters (Name, Value) VALUES ('CaptchaSite', '$CAPTCHA_SITE') ON DUPLICATE KEY UPDATE Value='$CAPTCHA_SITE';" \
+      && set_kv "$D/.env" HCAPTCHA_SITE_KEY "$CAPTCHA_SITE"
+    [ -n "$CAPTCHA_SECRET" ] && mycmd "$INLIS_HOST" "$INLIS_PORT" "$INLIS_USER" "$INLIS_PASS" "$INLIS_DB" \
+      -e "INSERT INTO settingparameters (Name, Value) VALUES ('CaptchaSecret', '$CAPTCHA_SECRET') ON DUPLICATE KEY UPDATE Value='$CAPTCHA_SECRET';" \
+      && set_kv "$D/.env" HCAPTCHA_SECRET_KEY "$CAPTCHA_SECRET"
+  fi
   echo "INLISLite OK"
 fi
 

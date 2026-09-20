@@ -270,6 +270,7 @@ if ($action === 'check') {
             'sql-inlis.sql' => file_exists(INST_DIR . '/sql-inlis.sql'),
             'sql-slims-schema.sql' => file_exists(INST_DIR . '/sql-slims-schema.sql'),
             'sql-slims-sample.sql' => file_exists(INST_DIR . '/sql-slims-sample.sql'),
+            'sql-captcha.sql' => file_exists(INST_DIR . '/sql-captcha.sql'),
         ],
     ]);
 }
@@ -308,8 +309,8 @@ if ($action === 'extract') {
 }
 
 if ($action === 'import') {
-    $which = $_POST['which']; // inlis | slims_schema | slims_sample
-    $map = ['inlis'=>'sql-inlis.sql','slims_schema'=>'sql-slims-schema.sql','slims_sample'=>'sql-slims-sample.sql'];
+    $which = $_POST['which']; // inlis | slims_schema | slims_sample | captcha
+    $map = ['inlis'=>'sql-inlis.sql','slims_schema'=>'sql-slims-schema.sql','slims_sample'=>'sql-slims-sample.sql','captcha'=>'sql-captcha.sql'];
     if (!isset($map[$which])) jout(['ok'=>false,'error'=>'which invalid']);
     $st = state_load();
     $key = 'imp_' . $which;
@@ -318,7 +319,11 @@ if ($action === 'import') {
     if ($m->connect_error) jout(['ok'=>false,'error'=>'koneksi DB gagal: '.$m->connect_error]);
     $m->set_charset('utf8mb4');
     $file = INST_DIR . '/' . $map[$which];
-    if (!file_exists($file)) jout(['ok'=>false,'error'=>$map[$which].' tidak ditemukan']);
+    if (!file_exists($file)) {
+        // Seed captcha opsional: lewati bila artefak tidak diupload.
+        if ($which === 'captcha') jout(['ok'=>true,'done'=>true,'stmt'=>0,'progress'=>100,'skipped'=>true]);
+        jout(['ok'=>false,'error'=>$map[$which].' tidak ditemukan']);
+    }
     $total = filesize($file);
     $finished = sql_import_chunk($m, $file, $st[$key]);
     state_save($st);
@@ -453,6 +458,69 @@ if ($action === 'admin') {
     jout(['ok'=>true,'log'=>$log]);
 }
 
+if ($action === 'captcha') {
+    // Tulis setting Captcha terpilih + kunci (secret hanya bila diisi).
+    // Dipanggil setelah import sql-captcha.sql (menu+permission).
+    $st = state_load();
+    $tg = isset($st['targets']) && is_array($st['targets']) ? $st['targets'] : [];
+    // Flow uji/manual tanpa langkah extract: izinkan target default.
+    if (!isset($tg['inlis']) && isset($_POST['inlis_dir'])) {
+        $d = clean_dir($_POST['inlis_dir']);
+        if ($d !== null) $tg['inlis'] = $d;
+    }
+    $log = [];
+    if (!isset($tg['inlis'])) jout(['ok'=>false,'error'=>'captcha butuh target inlis (mode both/inlis)']);
+    $provider = isset($_POST['captcha_provider']) ? $_POST['captcha_provider'] : 'off';
+    if (!in_array($provider, ['off','hcaptcha'], true)) jout(['ok'=>false,'error'=>'provider captcha invalid']);
+    $site = trim((string)($_POST['captcha_site'] ?? ''));
+    $secret = trim((string)($_POST['captcha_secret'] ?? ''));
+    if (strlen($site) > 255 || strlen($secret) > 255) jout(['ok'=>false,'error'=>'kunci captcha terlalu panjang']);
+    $m = new mysqli($_POST['db_host'], $_POST['db_user'], $_POST['db_pass'], $_POST['db_name'], (int)$_POST['db_port']);
+    if ($m->connect_error) jout(['ok'=>false,'error'=>'koneksi DB gagal: '.$m->connect_error]);
+    $m->set_charset('utf8mb4');
+    $upsert = function ($name, $value) use ($m, &$log) {
+        $stmt = $m->prepare('SELECT ID FROM settingparameters WHERE Name=?');
+        $stmt->bind_param('s', $name);
+        $stmt->execute();
+        $exists = (bool)$stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($exists) {
+            $stmt = $m->prepare('UPDATE settingparameters SET Value=? WHERE Name=?');
+            $stmt->bind_param('ss', $value, $name);
+        } else {
+            $stmt = $m->prepare('INSERT INTO settingparameters (Name, Value) VALUES (?, ?)');
+            $stmt->bind_param('ss', $name, $value);
+        }
+        if (!$stmt->execute()) { $e = $m->error; $stmt->close(); return $e; }
+        $stmt->close();
+        $log[] = "setting $name OK";
+        return null;
+    };
+    $err = $upsert('CaptchaProvider', $provider);
+    if ($err === null && $site !== '') $err = $upsert('CaptchaSite', $site);
+    if ($err === null && $secret !== '') $err = $upsert('CaptchaSecret', $secret);
+    if ($err !== null) jout(['ok'=>false,'error'=>'gagal tulis setting captcha: '.$err]);
+    // Sinkronkan juga fallback .env bila kunci diisi eksplisit.
+    if ($site !== '' || $secret !== '') {
+        $envPath = INST_DIR . '/' . $tg['inlis'] . '/.env';
+        $c = @file_get_contents($envPath);
+        if ($c === false) jout(['ok'=>false,'error'=>'tidak bisa baca .env captcha']);
+        $setEnvLine = function ($content, $key, $val) {
+            $pat = '/^' . preg_quote($key, '/') . '=.*/m';
+            $rep = function () use ($key, $val) { return $key . '=' . $val; };
+            if (preg_match($pat, $content)) {
+                return preg_replace_callback($pat, $rep, $content);
+            }
+            return rtrim($content, "\r\n") . "\n$key=$val\n";
+        };
+        if ($site !== '') $c = $setEnvLine($c, 'HCAPTCHA_SITE_KEY', $site);
+        if ($secret !== '') $c = $setEnvLine($c, 'HCAPTCHA_SECRET_KEY', $secret);
+        if (@file_put_contents($envPath, $c, LOCK_EX) === false) jout(['ok'=>false,'error'=>'tidak bisa tulis .env captcha']);
+        $log[] = '.env kunci captcha OK';
+    }
+    jout(['ok'=>true,'log'=>$log]);
+}
+
 if ($action === 'finish') {
     $log = [];
     if (!empty($_POST['cleanup']) && $_POST['cleanup'] === '1') {
@@ -515,7 +583,15 @@ Lihat <code>DEPLOY-SATU-HOSTING.md</code> untuk langkah cPanel lengkap.</div>
 <label>DB user <input type="text" name="inlis_db_user"></label>
 <label>DB pass <input type="password" name="inlis_db_pass"></label>
 <label>DB port <input type="number" name="inlis_db_port" value="3306"></label>
-</div></fieldset>
+</div>
+<details style="margin-top:.5em"><summary>Captcha login (opsional, per customer)</summary>
+<div class="grid">
+<label>Provider <select name="captcha_provider"><option value="off">Nonaktif</option><option value="hcaptcha">hCaptcha</option></select></label>
+<label>Site key <input type="text" name="captcha_site" placeholder="kosongkan = pakai .env"></label>
+<label>Secret key <input type="password" name="captcha_secret" placeholder="kosongkan = pakai .env"></label>
+</div>
+<div class="note">Menu + permission Captcha selalu di-seed. Provider/keys di sini ditulis ke settingparameters (secret hanya bila diisi). Fallback .env: HCAPTCHA_*, TURNSTILE_*, RECAPTCHA_*.</div>
+</details></fieldset>
 <fieldset id="fs-slims"><legend>SLiMS</legend>
 <label><input type="checkbox" name="slims_sample" value="1" checked> Import sample data</label>
 <div class="grid">
@@ -566,6 +642,8 @@ log('== config ==');
 j=await post({action:'config'});if(!j.ok){log('GAGAL: '+j.error);return;}j.log.forEach(log);
 log('== admin ==');
 j=await post({action:'admin'});if(!j.ok){log('GAGAL: '+j.error);return;}j.log.forEach(log);
+if(mode!=='slims'){const fc=$('f');await importLoop('captcha',{db_host:fc.inlis_db_host.value,db_user:fc.inlis_db_user.value,db_pass:fc.inlis_db_pass.value,db_name:fc.inlis_db_name.value,db_port:fc.inlis_db_port.value},'captcha menu');
+try{j=await post({action:'captcha',db_host:fc.inlis_db_host.value,db_user:fc.inlis_db_user.value,db_pass:fc.inlis_db_pass.value,db_name:fc.inlis_db_name.value,db_port:fc.inlis_db_port.value,captcha_provider:(fc.captcha_provider||{}).value||'off',captcha_site:(fc.captcha_site||{}).value||'',captcha_secret:(fc.captcha_secret||{}).value||''});}catch(e){j={ok:false,error:String(e)};}if(!j.ok){log('GAGAL: '+j.error);return;}j.log.forEach(log);}
 $('pbar').style.width='100%';log('SELESAI. Cek URL kedua app, lalu Finish.');
 }catch(e){log('Berhenti karena error. Perbaiki lalu klik Install lagi (import resume otomatis).');}};
 $('btn-finish').onclick=async()=>{const j=await post({action:'finish',cleanup:$('cleanup').checked?'1':'0'});

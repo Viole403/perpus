@@ -50,6 +50,7 @@ echo "== zip =="
 cp -f local/inlislite_v33-mariadb.sql "$DIST/sql-inlis.sql"
 cp -f slims9_bulian/install/senayan.sql "$DIST/sql-slims-schema.sql"
 cp -f slims9_bulian/install/sampledata.sql "$DIST/sql-slims-sample.sql"
+cp -f installer/seed-captcha.sql "$DIST/sql-captcha.sql"
 
 echo "== split >100MB =="
 for f in "$DIST"/*.zip; do
