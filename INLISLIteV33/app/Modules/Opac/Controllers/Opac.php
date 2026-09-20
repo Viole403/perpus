@@ -1792,10 +1792,11 @@ public function browse()
             ]);
         }
 
-        if (!$this->verifyHcaptcha($hcaptchaResponse)) {
+        helper('captcha');
+        if (!captcha_verify($hcaptchaResponse)) {
             return $this->response->setJSON([
                 'error'   => true,
-                'message' => 'Verifikasi hCaptcha gagal. Silakan coba lagi.',
+                'message' => 'Verifikasi captcha gagal. Silakan coba lagi.',
             ]);
         }
 
@@ -1918,58 +1919,6 @@ public function browse()
             'error'   => false,
             'message' => 'Login berhasil.',
         ]);
-    }
-
-    /**
-     * Verify hCaptcha response token.
-     */
-    private function verifyHcaptcha($hcaptchaResponse)
-    {
-        $secretKey = getenv('HCAPTCHA_SECRET_KEY');
-
-        if (empty($secretKey)) {
-            // hCaptcha belum dikonfigurasi di server, lewati verifikasi
-            return true;
-        }
-
-        if (empty($hcaptchaResponse)) {
-            return false;
-        }
-
-        $url  = 'https://hcaptcha.com/siteverify';
-        $data = [
-            'secret'   => $secretKey,
-            'response' => $hcaptchaResponse,
-            'remoteip' => $this->request->getIPAddress(),
-        ];
-
-        // Gunakan cURL (bukan file_get_contents) karena verifikasi SSL-nya
-        // mengikuti setting curl.cainfo di php.ini, yang di environment ini
-        // sudah dikonfigurasi dengan benar (berbeda dari openssl.cafile yang
-        // dipakai stream wrapper file_get_contents dan sering belum diset).
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => http_build_query($data),
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/x-www-form-urlencoded'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_TIMEOUT        => 15,
-        ]);
-
-        $result    = curl_exec($ch);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-
-        if ($result === false) {
-            log_message('error', 'hCaptcha verify request failed: ' . $curlError);
-            return false;
-        }
-
-        $response = json_decode($result, true);
-
-        return isset($response['success']) && $response['success'] === true;
     }
 
     private function _autoReturnDigitalLoan($loanItem, int $collection_id)

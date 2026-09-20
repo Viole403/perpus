@@ -462,21 +462,17 @@
                     </div>
                 </div>
 
-                <!-- hCaptcha -->
-                <div class="hcaptcha-container" aria-label="Verifikasi keamanan">
-                    <?php if (!empty($hcaptcha_site_key)): ?>
-                        <div class="h-captcha" 
-                             data-sitekey="<?= esc($hcaptcha_site_key, 'attr') ?>"
-                             data-callback="onHcaptchaSuccess"
-                             data-expired-callback="onHcaptchaExpired"
-                             data-error-callback="onHcaptchaError"></div>
-                    <?php else: ?>
-                        <div class="alert alert-warning">
-                            <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
-                            hCaptcha belum dikonfigurasi. Hubungi administrator.
-                        </div>
-                    <?php endif; ?>
-                </div>
+                <!-- Captcha (mengikuti Pengaturan > Captcha; kosong bila nonaktif) -->
+                <?= captcha_widget_html() ?>
+                <?php if (($captcha_provider ?? 'off') === 'off') : ?>
+                <script>
+                // Tanpa captcha, tombol langsung aktif.
+                (function () {
+                    var b = document.getElementById('loginBtn');
+                    if (b) b.disabled = false;
+                })();
+                </script>
+                <?php endif; ?>
                 <div id="captchaStatus" class="visually-hidden" role="status" aria-live="polite"></div>
 
                 <!-- Login Button -->
@@ -511,11 +507,6 @@
         <?= (date('Y') . ' Copyright &copy; Perpustakaan Nasional RI') ?>
     </div>
 </div>
-
-<!-- hCaptcha Script -->
-<?php if (!empty($hcaptcha_site_key)): ?>
-<script src="https://js.hcaptcha.com/1/api.js" async defer></script>
-<?php endif; ?>
 
 <script>
 // hCaptcha callback functions
@@ -553,16 +544,17 @@ function togglePassword() {
 
 // Form submission with loading state
 document.getElementById('loginForm').addEventListener('submit', function(e) {
-    <?php if (!empty($hcaptcha_site_key)): ?>
+    <?php $captchaProvider = ($captcha_provider ?? 'off'); ?>
+    <?php if ($captchaProvider !== 'off'): ?>
     // Cek apakah hCaptcha sudah dimuat
     if (typeof hcaptcha === 'undefined') {
         e.preventDefault();
         alert('hCaptcha belum dimuat. Silakan refresh halaman dan coba lagi.');
         return false;
     }
-    
+
     const hcaptchaResponse = hcaptcha.getResponse();
-    
+
     if (!hcaptchaResponse || hcaptchaResponse.length === 0) {
         e.preventDefault();
         alert('Harap selesaikan verifikasi hCaptcha terlebih dahulu.');
