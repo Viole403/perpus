@@ -458,7 +458,7 @@ class AnggotaController extends \Base\Controllers\BaseController
 
         $filename = $file->getRandomName();
         $file->move($this->modulePath, $filename);
-        return $this->response->setBody(base_url('uploads/anggota/' . $filename));
+        return $this->response->setBody(htmlspecialchars(base_url('uploads/anggota/' . $filename), ENT_QUOTES, 'UTF-8'));
     }
 
     public function profile()
