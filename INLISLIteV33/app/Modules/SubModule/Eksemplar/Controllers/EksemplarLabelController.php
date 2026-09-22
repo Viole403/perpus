@@ -93,7 +93,7 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
             if ($autoKode === null) {
                 $this->session->setFlashdata('swal_icon',  'warning');
                 $this->session->setFlashdata('swal_title', 'Peringatan');
-                $this->session->setFlashdata('swal_html',  'Tidak bisa menentukan label otomatis dari DDC. Silakan pilih Model Label secara manual.');
+                $this->session->setFlashdata('swal_html',  'Tidak bisa menentukan label otomatis dari DDC. Periksa isian DDC katalog / rentang Master Kelas Besar.');
                 return redirect()->back();
             }
             $template = 'mixcode:' . $autoKode;

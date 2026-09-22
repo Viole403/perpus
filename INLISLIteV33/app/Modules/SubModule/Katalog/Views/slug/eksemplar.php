@@ -14,8 +14,8 @@ $actions = [
 
 /**
  * LEGACY (tidak dipakai lagi): dulu dropdown Jenis Kertas memilih file
- * template langsung. Kini Jenis Kertas = kertas saja, Model Label =
- * klasifikasi mixcode ($mix_labels di bawah).
+ * template langsung. Kini Jenis Kertas = kertas saja; label mixcode
+ * full-otomatis dari DDC (server-side) — tidak ada dropdown Model Label.
  * Format:
  *   'paper_size_key' => [
  *       'label'  => 'Nama tampilan di dropdown',
@@ -96,24 +96,6 @@ $paper_size_config = [
 ];
 
 // Encode ke JSON agar bisa dikonsumsi JavaScript tanpa request AJAX tambahan
-// Label Mixcode: daftar nama label klasifikasi untuk dropdown Model Label.
-// value = "mixcode:<KdKelas>" (ditangani EksemplarLabelController).
-$mix_labels = [];
-foreach (db_connect()->table('master_kelas_besar')->select('KdKelas, namakelas')->where('active', 1)->orderBy('KdKelas', 'ASC')->get()->getResultArray() as $mixRow) {
-    $mixKode = (string) $mixRow['KdKelas'];
-    if (preg_match('/^(\d)00$/', $mixKode, $mixM)) {
-        $mixRange = $mixM[1] . '00 – ' . $mixM[1] . '99.999';
-    } else {
-        $mixRange = $mixKode;
-    }
-    $mixSubject = preg_replace('/^\d+\s*-\s*/', '', (string) ($mixRow['namakelas'] ?? ''));
-    $mix_labels[] = ['kode' => $mixKode, 'label' => trim($mixRange . ' ' . $mixSubject)];
-}
-// Halaman ini per-katalog (satu DDC): model otomatis dari ratusan DDC katalog.
-$catalogHundred = '';
-if (isset($catalog->DeweyNo) && preg_match('/(\d+)/', (string) $catalog->DeweyNo, $catM)) {
-    $catalogHundred = str_pad((string) (intdiv((int) $catM[1], 100) * 100), 3, '0', STR_PAD_LEFT);
-}
 ?>
 <?= $this->section('style'); ?>
 <style>
@@ -169,7 +151,7 @@ if (isset($catalog->DeweyNo) && preg_match('/(\d+)/', (string) $catalog->DeweyNo
             <div id="cetak_panel" style="display:none; padding: 8px 0 4px 0;">
                 <div class="d-flex align-items-center flex-wrap" style="gap:6px;">
 
-                    <!-- Jenis Kertas (kertas saja; model muncul setelah kertas dipilih) -->
+                    <!-- Jenis Kertas (label mixcode otomatis dari DDC katalog) -->
                     <div class="input-group" style="width:280px; flex-shrink:0;">
                         <div class="input-group-prepend">
                             <span class="btn btn-secondary">Jenis Kertas</span>
@@ -191,19 +173,6 @@ if (isset($catalog->DeweyNo) && preg_match('/(\d+)/', (string) $catalog->DeweyNo
                         </select>
                     </div>
 
-                    <!-- Model Label (klasifikasi mixcode; terisi otomatis dari DDC katalog) -->
-                    <div class="input-group" id="label_model_wrapper" style="display:none; width:320px; flex-shrink:0;">
-                        <div class="input-group-prepend">
-                            <span class="btn btn-secondary">Model Label</span>
-                        </div>
-                        <select class="form-control" id="label_model" name="label_model" data-auto="mixcode:<?= esc($catalogHundred) ?>">
-                            <option value="">-- Pilih Label --</option>
-                            <?php foreach ($mix_labels as $mix) : ?>
-                            <option value="mixcode:<?= esc($mix['kode']) ?>"><?= esc($mix['label']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
                     <!-- Format Output -->
                     <div class="input-group" style="width:200px; flex-shrink:0;">
                         <div class="input-group-prepend">
@@ -215,14 +184,6 @@ if (isset($catalog->DeweyNo) && preg_match('/(\d+)/', (string) $catalog->DeweyNo
                         </select>
                     </div>
 
-                </div>
-
-                <!-- Info ringkas pilihan aktif -->
-                <div id="model_info_row" style="display:none; margin-top:4px;">
-                    <small class="text-muted">
-                        <i class="fa fa-info-circle text-primary"></i>
-                        <span id="model_info_text"></span>
-                    </small>
                 </div>
             </div>
             <!-- end #cetak_panel -->
@@ -475,47 +436,15 @@ $(document).ready(function () {
     // Reset semua pilihan dalam panel cetak
     function resetCetakPanel() {
         $('#paper_size').val('');
-        $('#label_model').val('');
-        $('#label_model_wrapper').hide();
-        $('#model_info_row').hide();
-        $('#model_info_text').text('');
     }
-
-    // ── Model otomatis dari DDC katalog saat kertas dipilih ────────────
-    function updateModelInfo() {
-        var modelText = $('#label_model').find('option:selected').text();
-        var paperText = $('#paper_size').find('option:selected').text();
-        if ($('#label_model').val()) {
-            $('#model_info_text').text(paperText + '  →  ' + modelText);
-            $('#model_info_row').show();
-        } else {
-            $('#model_info_row').hide();
-        }
-    }
-    $('#paper_size').on('change', function () {
-        var auto = $('#label_model').data('auto') || '';
-        if (!$(this).val()) {
-            $('#label_model_wrapper').slideUp(200);
-            $('#label_model').val('');
-            updateModelInfo();
-            return;
-        }
-        if (auto && $('#label_model option[value="' + auto + '"]').length) {
-            $('#label_model').val(auto);
-        } else {
-            $('#label_model').val('');
-        }
-        $('#label_model_wrapper').slideDown(200);
-        updateModelInfo();
-    });
-    $('#label_model').on('change', updateModelInfo);
 
     // ── Tombol Proses ─────────────────────────────────────────────────────
     $('#btnProcess2').on('click', function () {
         var action       = $('#action').val();
         var paperSize    = $('#paper_size').val();
-        // Model boleh kosong: server menentukan label mixcode otomatis dari DDC.
-        var template     = $('#label_model').val() || '';
+        // Tanpa dropdown model: server menentukan label mixcode full-otomatis
+        // dari DDC katalog ini.
+        var template     = '';
         var outputFormat = $('#output_format').val() || 'pdf';
 
         // Validasi aksi
@@ -526,7 +455,7 @@ $(document).ready(function () {
 
         // Validasi khusus cetak label
         if (action === 'cetak-label') {
-            if (!template) {
+            if (!paperSize) {
                 Swal.fire({ icon: 'warning', title: 'Peringatan', text: 'Silakan pilih jenis kertas terlebih dahulu!', showConfirmButton: true });
                 return false;
             }

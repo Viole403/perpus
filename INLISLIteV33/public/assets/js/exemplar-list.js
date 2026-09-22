@@ -245,7 +245,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         syncSelectAll();
         updateCounter();
-        refreshAutoModel();
     });
     tbody.addEventListener('change', async function (event) {
         const input = event.target;
@@ -254,7 +253,6 @@ document.addEventListener('DOMContentLoaded', function () {
             else selected.delete(input.value);
             syncSelectAll();
             updateCounter();
-            refreshAutoModel();
             return;
         }
         if (!input.matches('.apply-status')) return;
@@ -279,67 +277,12 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (error) { window.prompt('Salin barcode berikut:', button.dataset.barcode); }
     });
 
-    // ── Panel cetak: kertas dulu, model mixcode otomatis ──────────────
-    // Model Label terisi otomatis dari ratusan DDC eksemplar yang dicentang
-    // (warna & posisi barcode sudah diatur di /label-mixcode); user cukup
-    // pilih Jenis Kertas. Pilihan model tetap bisa diubah manual.
-    let modelManual = false;
-
-    function updateModelInfo() {
-        const model = byId('label_model');
-        const row = byId('model_info_row');
-        if (!model.value) { row.style.display = 'none'; return; }
-        const paperText = byId('paper_size').selectedOptions[0]
-            ? byId('paper_size').selectedOptions[0].text : '';
-        byId('model_info_text').textContent = paperText + ' → ' + model.selectedOptions[0].text;
-        row.style.display = '';
-    }
-
-    function refreshAutoModel() {
-        const paper = byId('paper_size').value;
-        const model = byId('label_model');
-        if (!paper || modelManual) { updateModelInfo(); return; }
-        const hundreds = new Set();
-        [...selected].forEach(function (id) {
-            const cached = rowCache.get(String(id));
-            if (!cached) return;
-            const ddcInt = parseDdcInt(cached.ddc);
-            if (ddcInt !== null) hundreds.add(String(Math.floor(ddcInt / 100) * 100).padStart(3, '0'));
-        });
-        if (hundreds.size === 1) {
-            const want = 'mixcode:' + [...hundreds][0];
-            const opt = [...model.options].find(o => o.value === want);
-            if (opt) model.value = want;
-        } else {
-            model.value = '';
-        }
-        updateModelInfo();
-    }
-
+    // ── Panel cetak: hanya Jenis Kertas ─────────────────────────────────
+    // Label mixcode full-otomatis dari DDC di server; tidak ada dropdown model.
     byId('action').addEventListener('change', function () {
         const printing = this.value === 'cetak-label';
         byId('cetak_panel').style.display = printing ? '' : 'none';
-        if (!printing) {
-            byId('paper_size').value = '';
-            byId('label_model').value = '';
-            byId('label_model_wrapper').style.display = 'none';
-            byId('model_info_row').style.display = 'none';
-            modelManual = false;
-        }
-    });
-    byId('paper_size').addEventListener('change', function () {
-        const hasPaper = !!this.value;
-        byId('label_model_wrapper').style.display = hasPaper ? '' : 'none';
-        if (!hasPaper) {
-            byId('label_model').value = '';
-            byId('model_info_row').style.display = 'none';
-        }
-        modelManual = false;
-        refreshAutoModel();
-    });
-    byId('label_model').addEventListener('change', function () {
-        modelManual = !!this.value;
-        updateModelInfo();
+        if (!printing) byId('paper_size').value = '';
     });
 
     // ── Preflight DDC ─────────────────────────────────────────────────
@@ -442,9 +385,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const paperSelect = byId('paper_size');
         const paper = paperSelect.value;
         if (!paper) return window.alert('Silakan pilih jenis kertas terlebih dahulu!');
-        // Model boleh kosong: server menentukan label mixcode otomatis dari
-        // DDC eksemplar yang dipilih.
-        const template = byId('label_model').value || '';
+        // Tanpa dropdown model: server menentukan label mixcode full-otomatis
+        // dari DDC eksemplar yang dipilih.
+        const template = '';
 
         let ranges = [];
         try {
@@ -455,6 +398,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         const problems = [];
+        const hundreds = new Set();
         [...selected].forEach(function (id) {
             const cached = rowCache.get(String(id));
             if (!cached) return; // belum pernah tampil di halaman; lolos ke server (fallback)
@@ -463,10 +407,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 problems.push({ id, cached, issue: 'DDC kosong' });
             } else if (!resolveRange(ddcInt, ranges)) {
                 problems.push({ id, cached, issue: 'Di luar rentang' });
+            } else {
+                hundreds.add(String(Math.floor(ddcInt / 100) * 100).padStart(3, '0'));
             }
         });
 
-        if (!problems.length) {
+        // Pilihan campur beberapa kelas: server memakai kelas item pertama.
+        const mixedNote = byId('mixed_note');
+        if (hundreds.size > 1) {
+            const list = [...hundreds].sort().join(', ');
+            mixedNote.textContent = 'Pilihan mencampur kelas ' + list + '. Label mixcode mengikuti kelas item pertama (' + [...hundreds][0] + '). Untuk hasil tepat, cetak per kelas.';
+            mixedNote.style.display = '';
+        } else {
+            mixedNote.textContent = '';
+            mixedNote.style.display = 'none';
+        }
+
+        if (!problems.length && hundreds.size <= 1) {
             submitPrint(template, paper);
             return;
         }

@@ -14,8 +14,8 @@ $actions = [
 
 /**
  * LEGACY (tidak dipakai lagi): dulu dropdown Jenis Kertas memilih file
- * template langsung. Kini Jenis Kertas = kertas saja, Model Label =
- * klasifikasi mixcode ($mix_labels di bawah).
+ * template langsung. Kini Jenis Kertas = kertas saja; label mixcode
+ * full-otomatis dari DDC (server-side) — tidak ada dropdown Model Label.
  * Format:
  *   'paper_size_key' => [
  *       'label'  => 'Nama tampilan di dropdown',
@@ -98,19 +98,6 @@ $paper_size_config = [
 
 // Encode ke JSON agar bisa dikonsumsi JavaScript tanpa request AJAX tambahan
 $flashIcon = session()->getFlashdata('swal_icon');
-// Label Mixcode: daftar nama label klasifikasi untuk dropdown Jenis Kertas.
-// value = "mixcode:<KdKelas>" (ditangani EksemplarLabelController).
-$mix_labels = [];
-foreach (db_connect()->table('master_kelas_besar')->select('KdKelas, namakelas')->where('active', 1)->orderBy('KdKelas', 'ASC')->get()->getResultArray() as $mixRow) {
-    $mixKode = (string) $mixRow['KdKelas'];
-    if (preg_match('/^(\d)00$/', $mixKode, $mixM)) {
-        $mixRange = $mixM[1] . '00 – ' . $mixM[1] . '99.999';
-    } else {
-        $mixRange = $mixKode;
-    }
-    $mixSubject = preg_replace('/^\d+\s*-\s*/', '', (string) ($mixRow['namakelas'] ?? ''));
-    $mix_labels[] = ['kode' => $mixKode, 'label' => trim($mixRange . ' ' . $mixSubject)];
-}
 $flashTitle = session()->getFlashdata('swal_title');
 $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata('swal_text');
 ?>
@@ -395,7 +382,7 @@ $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata(
             <div id="cetak_panel" style="display:none; padding: 8px 0 4px 0;">
                 <div class="d-flex align-items-center flex-wrap" style="gap:6px;">
 
-                    <!-- Jenis Kertas (kertas saja; model muncul setelah kertas dipilih) -->
+                    <!-- Jenis Kertas (label mixcode otomatis dari DDC yg dicentang) -->
                     <div class="input-group" style="width:280px; flex-shrink:0;">
                         <div class="input-group-prepend">
                             <label class="exemplar-filter-label" for="paper_size">Jenis Kertas</label>
@@ -417,19 +404,6 @@ $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata(
                         </select>
                     </div>
 
-                    <!-- Model Label (klasifikasi mixcode; terisi otomatis dari DDC yg dicentang) -->
-                    <div class="input-group" id="label_model_wrapper" style="display:none; width:320px; flex-shrink:0;">
-                        <div class="input-group-prepend">
-                            <label class="exemplar-filter-label" for="label_model">Model Label</label>
-                        </div>
-                        <select class="form-control" id="label_model" name="label_model">
-                            <option value="">-- Pilih Label --</option>
-                            <?php foreach ($mix_labels as $mix) : ?>
-                            <option value="mixcode:<?= esc($mix['kode']) ?>"><?= esc($mix['label']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
                     <!-- Format Output -->
                     <div class="input-group" style="width:200px; flex-shrink:0;">
                         <div class="input-group-prepend">
@@ -441,14 +415,6 @@ $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata(
                         </select>
                     </div>
 
-                </div>
-
-                <!-- Info ringkas pilihan aktif -->
-                <div id="model_info_row" style="display:none; margin-top:4px;">
-                    <small class="text-muted">
-                        <i class="fa fa-info-circle text-primary" aria-hidden="true"></i>
-                        <span id="model_info_text"></span>
-                    </small>
                 </div>
             </div>
             <!-- end #cetak_panel -->
@@ -560,6 +526,7 @@ $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata(
                 </button>
             </div>
             <div class="modal-body">
+                <p id="mixed_note" class="alert alert-warning" style="display:none"></p>
                 <p class="mb-2">Eksemplar berikut <strong>DDC-nya kosong atau di luar rentang</strong> Master Kelas Besar, sehingga labelnya akan dicetak dengan <strong>warna fallback abu-abu (#CCCCCC)</strong>:</p>
                 <div class="table-responsive" style="max-height:300px; overflow-y:auto;">
                     <table class="table table-sm table-bordered mb-0">
