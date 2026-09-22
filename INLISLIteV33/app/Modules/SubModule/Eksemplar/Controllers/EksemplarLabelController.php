@@ -211,12 +211,10 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
 
         $namaCabang = $namaPerpustakaan;
 
-        // Label Mixcode per klasifikasi ("mixcode:<KdKelas>"): header tetap
-        // nama perpustakaan, tetapi warna latar mengikuti label terpilih.
-        $mixHeaderColor = null;
-        if ($mixLabelName !== null) {
-            $mixHeaderColor = $mixLabelColor;
-        }
+        // Label Mixcode per klasifikasi ("mixcode:<KdKelas>"): file template +
+        // setup posisi barcode diambil dari menu Label Mixcode, tetapi warna
+        // latar tiap label tetap mengikuti DDC eksemplarnya masing-masing
+        // (batch campur beda kelas → tiap label warnanya sendiri-sendiri).
 
         $useQrCode = str_contains($template, 'qrcode') || str_contains($paperSize, 'qrcode');
 
@@ -292,7 +290,7 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
                 'CallNumber'         => $callNumberPrint,
                 'NamaPerpustakaan'   => $namaPerpustakaan,
                 'NamaCabang'         => $namaCabang,
-                'Warna1'             => $mixHeaderColor ?? $resolveColor($row->DeweyNo ?? ''),
+                'Warna1'             => $resolveColor($row->DeweyNo ?? ''),
                 'BarcodePNG'         => $useQrCode
                                         ? get_qrcode_png($row->NomorBarcode)
                                         : get_barcode_png($row->NomorBarcode),
