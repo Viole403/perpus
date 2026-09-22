@@ -18,6 +18,8 @@ class MasterKelasBesarModel extends Model
         'kdKelas',
         'namakelas', 
         'warna',
+        'RangeStart',
+        'RangeEnd',
         'CreateBy',
         'CreateDate',
         'CreateTerminal',
@@ -35,7 +37,9 @@ class MasterKelasBesarModel extends Model
 
     protected $validationRules = [
         'kdKelas' => 'required|max_length[3]',
-        'namakelas' => 'required|max_length[255]'
+        'namakelas' => 'required|max_length[255]',
+        'RangeStart' => 'permit_empty|integer',
+        'RangeEnd' => 'permit_empty|integer'
     ];
 
     protected $validationMessages = [
@@ -46,6 +50,12 @@ class MasterKelasBesarModel extends Model
         'namakelas' => [
             'required' => 'Nama kelas harus diisi',
             'max_length' => 'Nama kelas maksimal 255 karakter'
+        ],
+        'RangeStart' => [
+            'integer' => 'Rentang awal harus bilangan bulat (INT)'
+        ],
+        'RangeEnd' => [
+            'integer' => 'Rentang akhir harus bilangan bulat (INT)'
         ]
     ];
 

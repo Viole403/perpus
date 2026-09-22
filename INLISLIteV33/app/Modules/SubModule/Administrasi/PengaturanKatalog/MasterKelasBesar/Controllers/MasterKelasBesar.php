@@ -34,17 +34,35 @@ class MasterKelasBesar extends \Base\Controllers\BaseController
             $validation->setRules([
                 'kdKelas' => 'required|max_length[3]',
                 'namakelas' => 'required|max_length[255]',
-                'warna' => 'max_length[50]'
+                'warna' => 'max_length[50]',
+                'RangeStart' => 'permit_empty|integer',
+                'RangeEnd' => 'permit_empty|integer'
             ]);
 
             if (!$validation->withRequest($this->request)->run()) {
                 return $this->fail($validation->getErrors());
             }
 
+            $rangeStart = $this->request->getPost('RangeStart');
+            $rangeEnd = $this->request->getPost('RangeEnd');
+            $rangeStart = ($rangeStart === '' || $rangeStart === null) ? null : (int) $rangeStart;
+            $rangeEnd = ($rangeEnd === '' || $rangeEnd === null) ? null : (int) $rangeEnd;
+
+            if ($rangeStart !== null && $rangeEnd !== null && $rangeStart > $rangeEnd) {
+                return $this->fail(['RangeEnd' => 'Rentang akhir tidak boleh lebih kecil dari rentang awal']);
+            }
+
+            $overlapError = $this->checkRangeOverlap($rangeStart, $rangeEnd);
+            if ($overlapError !== null) {
+                return $this->fail(['RangeStart' => $overlapError]);
+            }
+
             $data = [
                 'kdKelas' => $this->request->getPost('kdKelas'),
                 'namakelas' => $this->request->getPost('namakelas'),
                 'warna' => $this->request->getPost('warna'),
+                'RangeStart' => $rangeStart,
+                'RangeEnd' => $rangeEnd,
                 'CreateBy' => user()->id,
                 'CreateDate' => date('Y-m-d H:i:s'),
                 'CreateTerminal' => $this->request->getIPAddress(),
@@ -86,17 +104,35 @@ class MasterKelasBesar extends \Base\Controllers\BaseController
             $validation->setRules([
                 'kdKelas' => "required|max_length[3]",
                 'namakelas' => 'required|max_length[255]',
-                'warna' => 'max_length[50]'
+                'warna' => 'max_length[50]',
+                'RangeStart' => 'permit_empty|integer',
+                'RangeEnd' => 'permit_empty|integer'
             ]);
 
             if (!$validation->withRequest($this->request)->run()) {
                 return $this->fail($validation->getErrors());
             }
 
+            $rangeStart = $this->request->getPost('RangeStart');
+            $rangeEnd = $this->request->getPost('RangeEnd');
+            $rangeStart = ($rangeStart === '' || $rangeStart === null) ? null : (int) $rangeStart;
+            $rangeEnd = ($rangeEnd === '' || $rangeEnd === null) ? null : (int) $rangeEnd;
+
+            if ($rangeStart !== null && $rangeEnd !== null && $rangeStart > $rangeEnd) {
+                return $this->fail(['RangeEnd' => 'Rentang akhir tidak boleh lebih kecil dari rentang awal']);
+            }
+
+            $overlapError = $this->checkRangeOverlap($rangeStart, $rangeEnd, (int) $id);
+            if ($overlapError !== null) {
+                return $this->fail(['RangeStart' => $overlapError]);
+            }
+
             $data = [
                 'kdKelas' => $this->request->getPost('kdKelas'),
                 'namakelas' => $this->request->getPost('namakelas'),
                 'warna' => $this->request->getPost('warna'),
+                'RangeStart' => $rangeStart,
+                'RangeEnd' => $rangeEnd,
                 'UpdateBy' => user()->id,
                 'UpdateDate' => date('Y-m-d H:i:s'),
                 'UpdateTerminal' => $this->request->getIPAddress()
@@ -113,6 +149,49 @@ class MasterKelasBesar extends \Base\Controllers\BaseController
         }
 
         return redirect()->to(base_url('master-kelas-besar'));
+    }
+
+    /**
+     * Validasi overlap rentang DDC (INT).
+     * Ditolak: irisan sebagian (partial overlap) dengan baris lain yang
+     * sama-sama punya rentang. Diizinkan: lepas (disjoint), baris tanpa
+     * rentang (NULL), atau tersarang penuh / nested (sub-range seperti
+     * 320-329 di dalam 300-399 — dimenangkan yang tersempit saat cetak).
+     *
+     * @param int|null $start
+     * @param int|null $end
+     * @param int|null $exceptId Abaikan baris ini (mode update)
+     * @return string|null Pesan error, atau null jika lolos
+     */
+    private function checkRangeOverlap($start, $end, $exceptId = null)
+    {
+        if ($start === null || $end === null) {
+            return null;
+        }
+
+        $builder = $this->masterkelasbesar->builder()
+            ->select('kdKelas, namakelas, RangeStart, RangeEnd')
+            ->where('RangeStart IS NOT NULL')
+            ->where('RangeEnd IS NOT NULL')
+            ->where('RangeStart <=', $end)
+            ->where('RangeEnd >=', $start);
+        if ($exceptId !== null) {
+            $builder->where('ID !=', $exceptId);
+        }
+
+        foreach ($builder->get()->getResultArray() as $row) {
+            $rStart = (int) $row['RangeStart'];
+            $rEnd = (int) $row['RangeEnd'];
+            $nested = ($start >= $rStart && $end <= $rEnd)
+                || ($rStart >= $start && $rEnd <= $end);
+            if (!$nested) {
+                return 'Rentang ' . $start . '-' . $end . ' beririsan sebagian dengan '
+                    . $row['kdKelas'] . ' (' . $row['namakelas'] . ': '
+                    . $rStart . '-' . $rEnd . '). Hanya rentang lepas atau tersarang penuh yang diizinkan.';
+            }
+        }
+
+        return null;
     }
 
     public function delete($id)
@@ -162,7 +241,7 @@ class MasterKelasBesar extends \Base\Controllers\BaseController
         $branch_id = user()->branch_id ?? $this->request->getGet('branch_id');
         
         $builder = $db->table('master_kelas_besar as a')
-            ->select('a.ID, a.ID as action, a.kdKelas, a.namakelas, a.warna, a.active');
+            ->select('a.ID, a.ID as action, a.kdKelas, a.namakelas, a.warna, a.RangeStart, a.RangeEnd, a.active');
 
         // if ($branch_id) {
         //     $builder->where('a.Branch_id', $branch_id);
@@ -172,6 +251,12 @@ class MasterKelasBesar extends \Base\Controllers\BaseController
             ->addNumbering('no')
             ->edit('kdKelas', function ($row) {
                 return '<b>' . $row->kdKelas . '</b>';
+            })
+            ->edit('RangeStart', function ($row) {
+                if ($row->RangeStart === null || $row->RangeEnd === null) {
+                    return '<span class="text-muted">-</span>';
+                }
+                return '<b>' . (int) $row->RangeStart . ' &ndash; ' . (int) $row->RangeEnd . '</b>';
             })
             ->edit('warna', function ($row) {
                 if ($row->warna) {

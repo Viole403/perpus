@@ -56,6 +56,7 @@ $slug = $request->getGet('slug') ?? '';
                         <th class="text-center" width="35">No</th>
                         <th class="text-center" width="100">Kode Kelas</th>
                         <th class="text-center">Nama Kelas</th>
+                        <th class="text-center" width="130">Rentang DDC</th>
                         <th class="text-center" width="100">Warna</th>
                         <th class="text-center" width="80">Status</th>
                         <th class="text-center" width="180">Aksi</th>
@@ -111,6 +112,10 @@ $slug = $request->getGet('slug') ?? '';
                     data: 'namakelas'
                 },
                 {
+                    data: 'RangeStart',
+                    className: 'text-center'
+                },
+                {
                     data: 'warna',
                     className: 'text-center'
                 },
@@ -125,11 +130,11 @@ $slug = $request->getGet('slug') ?? '';
             ],
             "columnDefs": [
                 {
-                    targets: [0, 3, 4, 5],
+                    targets: [0, 3, 4, 5, 6],
                     searchable: false
                 },
                 {
-                    targets: [0, 5],
+                    targets: [0, 6],
                     orderable: false
                 }
             ],

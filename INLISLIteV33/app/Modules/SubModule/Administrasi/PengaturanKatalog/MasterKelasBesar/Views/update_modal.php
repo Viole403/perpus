@@ -33,6 +33,23 @@
                         </div>
                     </div>
                     <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="update_RangeStart">Rentang DDC Awal (INT)</label>
+                                <input type="number" step="1" class="form-control" id="update_RangeStart" name="RangeStart" placeholder="cth: 800">
+                                <div class="invalid-feedback"></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="update_RangeEnd">Rentang DDC Akhir (INT)</label>
+                                <input type="number" step="1" class="form-control" id="update_RangeEnd" name="RangeEnd" placeholder="cth: 899">
+                                <div class="invalid-feedback"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <small class="form-text text-muted d-block mb-2">Bilangan bulat saja (bukan desimal). Rentang beririsan sebagian dengan kelas lain ditolak; sub-range tersarang penuh diizinkan (yang tersempit menang saat cetak).</small>
+                    <div class="row">
                         <div class="col-md-12">
                             <div class="form-group">
                                 <label for="update_namakelas">Nama Kelas <span class="text-danger">*</span></label>
@@ -80,6 +97,8 @@ $(document).ready(function() {
                 $('#update_id').val(response.ID);
                 $('#update_kdKelas').val(response.kdKelas);
                 $('#update_namakelas').val(response.namakelas);
+                $('#update_RangeStart').val(response.RangeStart ?? '');
+                $('#update_RangeEnd').val(response.RangeEnd ?? '');
                 $('#update_warna').val(response.warna || '#000000');
                 $('#update_warna_text').val(response.warna || '#000000');
                 
