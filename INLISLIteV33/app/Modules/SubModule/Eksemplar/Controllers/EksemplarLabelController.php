@@ -28,7 +28,7 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
 
         $this->validation->setRules([
             'eksemplar_ids' => ['label' => 'Eksemplar',      'rules' => 'required'],
-            'eksemplar_tpl' => ['label' => 'Template Label', 'rules' => 'required'],
+            'eksemplar_tpl' => ['label' => 'Template Label', 'rules' => 'permit_empty'],
         ]);
 
         if (!$this->request->getPost() || !$this->validation->withRequest($this->request)->run()) {
@@ -43,9 +43,10 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
         }
 
         $post         = $this->request->getPost();
-        $template     = $post['eksemplar_tpl'];
+        $template     = trim((string) ($post['eksemplar_tpl'] ?? ''));
         $paperSize    = $post['paper_size'] ?? 'a4';
         $outputFormat = $post['output_format'] ?? 'pdf';
+        $db = db_connect();
         $idsArr       = array_filter(
             array_map('intval', explode(',', preg_replace('/[^0-9,]/', '', $post['eksemplar_ids']))),
             fn($id) => $id > 0
@@ -58,10 +59,53 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
             return redirect()->back();
         }
 
+        if ($paperSize === '' || $paperSize === null) {
+            $this->session->setFlashdata('swal_icon',  'warning');
+            $this->session->setFlashdata('swal_title', 'Peringatan');
+            $this->session->setFlashdata('swal_html',  'Silakan pilih jenis kertas terlebih dahulu.');
+            return redirect()->back();
+        }
+
+        // Model boleh kosong: tentukan label mixcode otomatis dari ratusan
+        // DDC eksemplar pertama yang DDC-nya valid (cth. 813 → mixcode:800).
+        if ($template === '') {
+            $firstDewey = $db->table('collections as a')
+                ->select('b.DeweyNo')
+                ->join('catalogs b', 'b.ID = a.Catalog_id')
+                ->whereIn('a.ID', $idsArr)
+                ->where('b.DeweyNo IS NOT NULL')
+                ->where('b.DeweyNo !=', '')
+                ->orderBy('a.ID', 'ASC')
+                ->limit(1)
+                ->get()
+                ->getRow();
+            $autoKode = null;
+            if ($firstDewey && preg_match('/(\d+)/', (string) $firstDewey->DeweyNo, $dm)) {
+                $autoKode = str_pad((string) (intdiv((int) $dm[1], 100) * 100), 3, '0', STR_PAD_LEFT);
+                $exists = $db->table('master_kelas_besar')
+                    ->where('KdKelas', $autoKode)
+                    ->where('active', 1)
+                    ->countAllResults();
+                if (!$exists) {
+                    $autoKode = null;
+                }
+            }
+            if ($autoKode === null) {
+                $this->session->setFlashdata('swal_icon',  'warning');
+                $this->session->setFlashdata('swal_title', 'Peringatan');
+                $this->session->setFlashdata('swal_html',  'Tidak bisa menentukan label otomatis dari DDC. Silakan pilih Model Label secara manual.');
+                return redirect()->back();
+            }
+            $template = 'mixcode:' . $autoKode;
+        }
+
         // Model A4-1 s.d. A4-12 disembunyikan (file view tetap ada, tidak
         // lagi ditawarkan di dropdown maupun diizinkan di sini).
         $allowedTemplates = [
             'cetak-label-a4-4-qrcode',
+            // Label Mixcode Warna (port plugin SLiMS label_mixcode_color_slims)
+            'cetak-label-a4-mix-left', 'cetak-label-a4-mix-right', 'cetak-label-a4-mix-both',
+            'cetak-label-mix-roll', 'cetak-label-mix-br', 'cetak-label-mix-tj121', 'cetak-label-mix-gc121',
             'cetak-label-lr1',  'cetak-label-lr2',  'cetak-label-lr3',
             'cetak-label-lr4',  'cetak-label-lr5',  'cetak-label-lr6',
             'cetak-label-br1',  'cetak-label-br2',
@@ -71,14 +115,45 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
             'cetak-label-gc121-3', 'cetak-label-gc121-4',
         ];
 
+        // Label Mixcode per klasifikasi: eksemplar_tpl = "mixcode:<KdKelas>".
+        // Header (nama + warna) mengikuti label yang dipilih, file template
+        // mengikuti posisi barcode di Pengaturan > Label Mixcode.
+        $mixLabelName = null;
+        $mixLabelColor = null;
+        if (str_starts_with((string) $template, 'mixcode:')) {
+            $mixKode = substr((string) $template, strlen('mixcode:'));
+            // SELECT eksplisit (bukan *) agar key hasil sesuai tulisan di sini:
+            // MySQL mengembalikan label kolom sesuai teks query, sedangkan
+            // SELECT * memakai case asli kolom (kdKelas/warna lowercase).
+            $kelasRow = $db->table('master_kelas_besar')
+                ->select('KdKelas, namakelas, Warna')
+                ->where('KdKelas', $mixKode)
+                ->where('active', 1)
+                ->get()
+                ->getRow();
+            if (!$kelasRow) {
+                $this->session->setFlashdata('swal_icon',  'error');
+                $this->session->setFlashdata('swal_title', 'Gagal');
+                $this->session->setFlashdata('swal_html',  'Label klasifikasi tidak dikenali: ' . esc($mixKode));
+                return redirect()->back();
+            }
+            if (preg_match('/^(\d)00$/', $mixKode, $mm)) {
+                $mixRange = $mm[1] . '00 – ' . $mm[1] . '99.999';
+            } else {
+                $mixRange = $mixKode;
+            }
+            $mixSubject = preg_replace('/^\d+\s*-\s*/', '', (string) ($kelasRow->namakelas ?? ''));
+            $mixLabelName = trim($mixRange . ' ' . $mixSubject);
+            $mixLabelColor = !empty($kelasRow->Warna) ? $kelasRow->Warna : '#FFFF66';
+            $template = $this->_mixcodeTemplateFile();
+        }
+
         if (!in_array($template, $allowedTemplates, true)) {
             $this->session->setFlashdata('swal_icon',  'error');
             $this->session->setFlashdata('swal_title', 'Gagal');
             $this->session->setFlashdata('swal_html',  'Template tidak dikenali: ' . esc($template));
             return redirect()->back();
         }
-
-        $db = db_connect();
 
         $eksemplarData = $db->table('collections as a')
             ->select('a.ID, a.NomorBarcode, b.Title, b.Author, b.CallNumber, b.DeweyNo')
@@ -136,7 +211,70 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
 
         $namaCabang = $namaPerpustakaan;
 
+        // Label Mixcode per klasifikasi ("mixcode:<KdKelas>"): header tetap
+        // nama perpustakaan, tetapi warna latar mengikuti label terpilih.
+        $mixHeaderColor = null;
+        if ($mixLabelName !== null) {
+            $mixHeaderColor = $mixLabelColor;
+        }
+
         $useQrCode = str_contains($template, 'qrcode') || str_contains($paperSize, 'qrcode');
+
+        // Opsi Label Mixcode (diatur via menu Pengaturan > Label Mixcode).
+        $mixTemplates = ['cetak-label-a4-mix-left', 'cetak-label-a4-mix-right', 'cetak-label-a4-mix-both',
+            'cetak-label-mix-roll', 'cetak-label-mix-br', 'cetak-label-mix-tj121', 'cetak-label-mix-gc121'];
+        $mixDefaults = [
+            'MixcodePosition'      => 'right',
+            'MixcodeTitleMode'     => 'full',
+            'MixcodeTitleLen'      => '0',
+            'MixcodeTitleFont'     => '8',
+            'MixcodeBarcodeHeight' => '110',
+            'MixcodeHeaderSource'  => 'library',
+            'MixcodeHeaderText'    => '',
+        ];
+        $mixSettings = [
+            'titleLen'      => 0,
+            'titleFont'     => 8,
+            'barcodeHeight' => 110,
+            'position'      => 'right',
+        ];
+        // File mixcode per kertas (bawaan: tiap kertas punya file sendiri).
+        // label-tj107 tidak punya file bawaan → jatuh ke file mix A4.
+        $mixPaperFiles = [
+            'label-roll'   => 'cetak-label-mix-roll',
+            'barcode-roll' => 'cetak-label-mix-br',
+            'label-tj121'  => 'cetak-label-mix-tj121',
+            'label-gc121'  => 'cetak-label-mix-gc121',
+        ];
+        if ($mixLabelName !== null && isset($mixPaperFiles[$paperSize])) {
+            $template = $mixPaperFiles[$paperSize];
+        }
+        if (in_array($template, $mixTemplates, true) || $mixLabelName !== null) {
+            $optRows = $db->table('settingparameters')
+                ->select('Name, Value')
+                ->whereIn('Name', array_keys($mixDefaults))
+                ->get()
+                ->getResultArray();
+            $mixOpt = $mixDefaults;
+            foreach ($optRows as $optRow) {
+                $val = (string) ($optRow['Value'] ?? '');
+                if ($val !== '') {
+                    $mixOpt[$optRow['Name']] = $val;
+                }
+            }
+            if (!in_array($mixOpt['MixcodePosition'], ['left', 'right', 'both'], true)) {
+                $mixOpt['MixcodePosition'] = 'right';
+            }
+            $mixSettings = [
+                'titleLen'      => $mixOpt['MixcodeTitleMode'] === 'crop' ? max(1, (int) $mixOpt['MixcodeTitleLen']) : 0,
+                'titleFont'     => min(20, max(6, (int) $mixOpt['MixcodeTitleFont'])) ?: 8,
+                'barcodeHeight' => min(150, max(40, (int) $mixOpt['MixcodeBarcodeHeight'])) ?: 110,
+                'position'      => $mixOpt['MixcodePosition'],
+            ];
+            if ($mixOpt['MixcodeHeaderSource'] === 'custom' && trim($mixOpt['MixcodeHeaderText']) !== '') {
+                $namaPerpustakaan = trim($mixOpt['MixcodeHeaderText']);
+            }
+        }
 
         $LabelData = [];
         foreach ($eksemplarData as $row) {
@@ -154,7 +292,7 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
                 'CallNumber'         => $callNumberPrint,
                 'NamaPerpustakaan'   => $namaPerpustakaan,
                 'NamaCabang'         => $namaCabang,
-                'Warna1'             => $resolveColor($row->DeweyNo ?? ''),
+                'Warna1'             => $mixHeaderColor ?? $resolveColor($row->DeweyNo ?? ''),
                 'BarcodePNG'         => $useQrCode
                                         ? get_qrcode_png($row->NomorBarcode)
                                         : get_barcode_png($row->NomorBarcode),
@@ -165,12 +303,50 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
         if ($outputFormat === 'word') {
             $html = view('Eksemplar\Views\template\\' . $template, [
                 'LabelData' => $LabelData,
-                'outputFormat' => $outputFormat
+                'outputFormat' => $outputFormat,
+                'mixSettings' => $mixSettings,
+                'paperSize' => $paperSize,
             ]);
             return $this->_generateWordDocHtml($html);
         }
 
-        return view('Eksemplar\Views\template\\' . $template, ['LabelData' => $LabelData]);
+        return view('Eksemplar\Views\template\\' . $template, ['LabelData' => $LabelData, 'mixSettings' => $mixSettings, 'paperSize' => $paperSize]);
+    }
+
+    /**
+     * File template mixcode sesuai posisi barcode di
+     * Pengaturan > Label Mixcode (dengan migrasi dari kunci lama).
+     */
+    private function _mixcodeTemplateFile()
+    {
+        $db = db_connect();
+        $row = $db->table('settingparameters')
+            ->select('Value')
+            ->where('Name', 'MixcodePosition')
+            ->get()
+            ->getRow();
+        $position = trim((string) ($row->Value ?? ''));
+        if (!in_array($position, ['left', 'right', 'both'], true)) {
+            $old = $db->table('settingparameters')
+                ->select('Value')
+                ->where('Name', 'MixcodeTemplate')
+                ->get()
+                ->getRow();
+            $oldVal = (string) ($old->Value ?? '');
+            if (strpos($oldVal, 'mix-left') !== false || $oldVal === 'left') {
+                $position = 'left';
+            } elseif (strpos($oldVal, 'mix-both') !== false || $oldVal === 'both') {
+                $position = 'both';
+            } else {
+                $position = 'right';
+            }
+        }
+        $map = [
+            'left'  => 'cetak-label-a4-mix-left',
+            'right' => 'cetak-label-a4-mix-right',
+            'both'  => 'cetak-label-a4-mix-both',
+        ];
+        return $map[$position];
     }
 
     private function _generateWordDocHtml(string $html)

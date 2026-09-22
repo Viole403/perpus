@@ -13,8 +13,9 @@ $actions = [
 ];
 
 /**
- * Konfigurasi lengkap semua jenis kertas beserta model-model label-nya.
- *
+ * LEGACY (tidak dipakai lagi): dulu dropdown Jenis Kertas memilih file
+ * template langsung. Kini Jenis Kertas = kertas saja, Model Label =
+ * klasifikasi mixcode ($mix_labels di bawah).
  * Format:
  *   'paper_size_key' => [
  *       'label'  => 'Nama tampilan di dropdown',
@@ -97,6 +98,19 @@ $paper_size_config = [
 
 // Encode ke JSON agar bisa dikonsumsi JavaScript tanpa request AJAX tambahan
 $flashIcon = session()->getFlashdata('swal_icon');
+// Label Mixcode: daftar nama label klasifikasi untuk dropdown Jenis Kertas.
+// value = "mixcode:<KdKelas>" (ditangani EksemplarLabelController).
+$mix_labels = [];
+foreach (db_connect()->table('master_kelas_besar')->select('KdKelas, namakelas')->where('active', 1)->orderBy('KdKelas', 'ASC')->get()->getResultArray() as $mixRow) {
+    $mixKode = (string) $mixRow['KdKelas'];
+    if (preg_match('/^(\d)00$/', $mixKode, $mixM)) {
+        $mixRange = $mixM[1] . '00 – ' . $mixM[1] . '99.999';
+    } else {
+        $mixRange = $mixKode;
+    }
+    $mixSubject = preg_replace('/^\d+\s*-\s*/', '', (string) ($mixRow['namakelas'] ?? ''));
+    $mix_labels[] = ['kode' => $mixKode, 'label' => trim($mixRange . ' ' . $mixSubject)];
+}
 $flashTitle = session()->getFlashdata('swal_title');
 $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata('swal_text');
 ?>
@@ -381,29 +395,37 @@ $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata(
             <div id="cetak_panel" style="display:none; padding: 8px 0 4px 0;">
                 <div class="d-flex align-items-center flex-wrap" style="gap:6px;">
 
-                    <!-- Jenis Kertas (= file template, dikelompokkan per kertas) -->
-                    <div class="input-group" style="width:420px; flex-shrink:0;">
+                    <!-- Jenis Kertas (kertas saja; model muncul setelah kertas dipilih) -->
+                    <div class="input-group" style="width:280px; flex-shrink:0;">
                         <div class="input-group-prepend">
                             <label class="exemplar-filter-label" for="paper_size">Jenis Kertas</label>
                         </div>
                         <select class="form-control" id="paper_size" name="paper_size">
                             <option value="">-- Pilih Jenis Kertas --</option>
-                            <?php
-                            $renderedGroups = [];
-                            foreach ($paper_size_config as $paperKey => $paper) :
-                                if (empty($paper['models'])) continue;
-                                if (!isset($renderedGroups[$paper['group']])) $renderedGroups[$paper['group']] = [];
-                                foreach ($paper['models'] as $tplKey => $tplLabel) {
-                                    $renderedGroups[$paper['group']][] = ['tpl' => $tplKey, 'label' => $tplLabel, 'paper' => $paperKey];
-                                }
-                            endforeach;
-                            foreach ($renderedGroups as $groupLabel => $items) :
-                            ?>
-                            <optgroup label="<?= esc($groupLabel) ?>">
-                                <?php foreach ($items as $item) : ?>
-                                <option value="<?= esc($item['tpl']) ?>" data-paper="<?= esc($item['paper']) ?>"><?= esc($item['label']) ?></option>
-                                <?php endforeach; ?>
+                            <optgroup label="Kertas A4">
+                                <option value="a4">Kertas A4</option>
                             </optgroup>
+                            <optgroup label="Kertas Label Roll">
+                                <option value="label-roll">Kertas Label Roll</option>
+                                <option value="barcode-roll">Kertas Barcode Roll</option>
+                            </optgroup>
+                            <optgroup label="Kertas Label Stiker">
+                                <option value="label-tj107">Tom &amp; Jerry 107</option>
+                                <option value="label-tj121">Tom &amp; Jerry 121</option>
+                                <option value="label-gc121">Golden Cock 121</option>
+                            </optgroup>
+                        </select>
+                    </div>
+
+                    <!-- Model Label (klasifikasi mixcode; terisi otomatis dari DDC yg dicentang) -->
+                    <div class="input-group" id="label_model_wrapper" style="display:none; width:320px; flex-shrink:0;">
+                        <div class="input-group-prepend">
+                            <label class="exemplar-filter-label" for="label_model">Model Label</label>
+                        </div>
+                        <select class="form-control" id="label_model" name="label_model">
+                            <option value="">-- Pilih Label --</option>
+                            <?php foreach ($mix_labels as $mix) : ?>
+                            <option value="mixcode:<?= esc($mix['kode']) ?>"><?= esc($mix['label']) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -421,6 +443,13 @@ $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata(
 
                 </div>
 
+                <!-- Info ringkas pilihan aktif -->
+                <div id="model_info_row" style="display:none; margin-top:4px;">
+                    <small class="text-muted">
+                        <i class="fa fa-info-circle text-primary" aria-hidden="true"></i>
+                        <span id="model_info_text"></span>
+                    </small>
+                </div>
             </div>
             <!-- end #cetak_panel -->
 

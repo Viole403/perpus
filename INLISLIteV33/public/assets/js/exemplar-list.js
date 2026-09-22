@@ -245,6 +245,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         syncSelectAll();
         updateCounter();
+        refreshAutoModel();
     });
     tbody.addEventListener('change', async function (event) {
         const input = event.target;
@@ -253,6 +254,7 @@ document.addEventListener('DOMContentLoaded', function () {
             else selected.delete(input.value);
             syncSelectAll();
             updateCounter();
+            refreshAutoModel();
             return;
         }
         if (!input.matches('.apply-status')) return;
@@ -277,11 +279,67 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (error) { window.prompt('Salin barcode berikut:', button.dataset.barcode); }
     });
 
-    // ── Panel cetak: Jenis Kertas memilih file template langsung ──────
+    // ── Panel cetak: kertas dulu, model mixcode otomatis ──────────────
+    // Model Label terisi otomatis dari ratusan DDC eksemplar yang dicentang
+    // (warna & posisi barcode sudah diatur di /label-mixcode); user cukup
+    // pilih Jenis Kertas. Pilihan model tetap bisa diubah manual.
+    let modelManual = false;
+
+    function updateModelInfo() {
+        const model = byId('label_model');
+        const row = byId('model_info_row');
+        if (!model.value) { row.style.display = 'none'; return; }
+        const paperText = byId('paper_size').selectedOptions[0]
+            ? byId('paper_size').selectedOptions[0].text : '';
+        byId('model_info_text').textContent = paperText + ' → ' + model.selectedOptions[0].text;
+        row.style.display = '';
+    }
+
+    function refreshAutoModel() {
+        const paper = byId('paper_size').value;
+        const model = byId('label_model');
+        if (!paper || modelManual) { updateModelInfo(); return; }
+        const hundreds = new Set();
+        [...selected].forEach(function (id) {
+            const cached = rowCache.get(String(id));
+            if (!cached) return;
+            const ddcInt = parseDdcInt(cached.ddc);
+            if (ddcInt !== null) hundreds.add(String(Math.floor(ddcInt / 100) * 100).padStart(3, '0'));
+        });
+        if (hundreds.size === 1) {
+            const want = 'mixcode:' + [...hundreds][0];
+            const opt = [...model.options].find(o => o.value === want);
+            if (opt) model.value = want;
+        } else {
+            model.value = '';
+        }
+        updateModelInfo();
+    }
+
     byId('action').addEventListener('change', function () {
         const printing = this.value === 'cetak-label';
         byId('cetak_panel').style.display = printing ? '' : 'none';
-        if (!printing) byId('paper_size').value = '';
+        if (!printing) {
+            byId('paper_size').value = '';
+            byId('label_model').value = '';
+            byId('label_model_wrapper').style.display = 'none';
+            byId('model_info_row').style.display = 'none';
+            modelManual = false;
+        }
+    });
+    byId('paper_size').addEventListener('change', function () {
+        const hasPaper = !!this.value;
+        byId('label_model_wrapper').style.display = hasPaper ? '' : 'none';
+        if (!hasPaper) {
+            byId('label_model').value = '';
+            byId('model_info_row').style.display = 'none';
+        }
+        modelManual = false;
+        refreshAutoModel();
+    });
+    byId('label_model').addEventListener('change', function () {
+        modelManual = !!this.value;
+        updateModelInfo();
     });
 
     // ── Preflight DDC ─────────────────────────────────────────────────
@@ -382,9 +440,11 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         const paperSelect = byId('paper_size');
-        const template = paperSelect.value;
-        if (!template) return window.alert('Silakan pilih jenis kertas terlebih dahulu!');
-        const paper = (paperSelect.selectedOptions[0] && paperSelect.selectedOptions[0].dataset.paper) || 'a4';
+        const paper = paperSelect.value;
+        if (!paper) return window.alert('Silakan pilih jenis kertas terlebih dahulu!');
+        // Model boleh kosong: server menentukan label mixcode otomatis dari
+        // DDC eksemplar yang dipilih.
+        const template = byId('label_model').value || '';
 
         let ranges = [];
         try {
