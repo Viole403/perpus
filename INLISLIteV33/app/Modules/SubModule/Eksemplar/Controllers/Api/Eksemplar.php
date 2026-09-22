@@ -117,6 +117,7 @@ class Eksemplar extends \Base\Controllers\BaseResourceController
         ->select('cs.Name as StatusName')
 		->select('Loc.Name as LocationLibraryName')
 		->select('cat.Title')
+        ->select('cat.DeweyNo, cat.Author, cat.CallNumber')
         ->join('collectionstatus as cs', 'a.Status_id = cs.ID', 'left')
         ->join('location_library as Loc', 'a.Location_Library_id = Loc.ID', 'left')
 		->join('catalogs as cat', 'a.Catalog_id = cat.ID', 'left')
@@ -169,7 +170,7 @@ class Eksemplar extends \Base\Controllers\BaseResourceController
                 ->groupEnd();
         }
         $length = (int) $this->request->getGet('length');
-        $length = in_array($length, [10, 25, 50, 100], true) ? $length : 10;
+        $length = in_array($length, [10, 25, 50, 100, 250, 500, 1000], true) ? $length : 10;
         $filtered = (clone $builder)->countAllResults();
         $pages = max(1, (int) ceil($filtered / $length));
         $page = min($pages, max(1, (int) $this->request->getGet('page')));
@@ -519,6 +520,25 @@ class Eksemplar extends \Base\Controllers\BaseResourceController
 		$db = db_connect();
 		$query = $db->table('collectionsources')->select('ID as code, Name as name')->get();
 		return $this->simpleResponse($query->getResult());
+	}
+
+	/**
+	 * Rentang DDC aktif Master Kelas Besar untuk preflight warna label.
+	 * Resolver (client & cetak): DDC INT masuk ke baris yang rentangnya
+	 * melingkupi; jika beberapa (sub-range tersarang), yang tersempit menang.
+	 */
+	public function kelas_ranges()
+	{
+		$db = db_connect();
+		$rows = $db->table('master_kelas_besar')
+			->select('kdKelas, namakelas, warna, RangeStart, RangeEnd')
+			->where('active', 1)
+			->where('RangeStart IS NOT NULL')
+			->where('RangeEnd IS NOT NULL')
+			->orderBy('RangeStart', 'ASC')
+			->get()
+			->getResultArray();
+		return $this->response->setJSON(['ranges' => $rows]);
 	}
 
 	public function get_collectionpartners()

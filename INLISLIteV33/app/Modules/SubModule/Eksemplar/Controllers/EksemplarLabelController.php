@@ -58,9 +58,10 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
             return redirect()->back();
         }
 
+        // Model A4-1 s.d. A4-12 disembunyikan (file view tetap ada, tidak
+        // lagi ditawarkan di dropdown maupun diizinkan di sini).
         $allowedTemplates = [
-            'cetak-label-a4-1', 'cetak-label-a4-2', 'cetak-label-a4-3',
-            'cetak-label-a4-4', 'cetak-label-a4-5', 'cetak-label-a4-6', 'cetak-label-a4-7','cetak-label-a4-8', 'cetak-label-a4-9', 'cetak-label-a4-10', 'cetak-label-a4-11', 'cetak-label-a4-12', 'cetak-label-a4-4-qrcode',
+            'cetak-label-a4-4-qrcode',
             'cetak-label-lr1',  'cetak-label-lr2',  'cetak-label-lr3',
             'cetak-label-lr4',  'cetak-label-lr5',  'cetak-label-lr6',
             'cetak-label-br1',  'cetak-label-br2',
@@ -80,57 +81,45 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
         $db = db_connect();
 
         $eksemplarData = $db->table('collections as a')
-            ->select('a.ID, a.NomorBarcode, b.Title, b.CallNumber, b.DeweyNo')
+            ->select('a.ID, a.NomorBarcode, b.Title, b.Author, b.CallNumber, b.DeweyNo')
             ->join('catalogs b', 'b.ID = a.Catalog_id')
             ->whereIn('a.ID', $idsArr)
             ->get()
             ->getResultObject();
 
-        $firstChars = array_values(array_unique(array_filter(
-            array_map(fn($row) => strtoupper(substr((string) ($row->DeweyNo ?? ''), 0, 1)), $eksemplarData),
-            fn($c) => $c !== ''
-        )));
+        // Warna label otomatis per-eksemplar dari rentang DDC Master Kelas Besar.
+        // DDC dibaca sebagai INT (digit awal, cth. "813.5" -> 813); baris yang
+        // rentangnya melingkupi dan tersempit menang (sub-range spt. 320-329
+        // mengalahkan 300-399). Tanpa kecocokan -> fallback abu-abu #CCCCCC.
+        $fallbackColor = '#CCCCCC';
+        $ddcRanges = $db->table('master_kelas_besar')
+            ->select('warna, RangeStart, RangeEnd')
+            ->where('active', 1)
+            ->where('RangeStart IS NOT NULL')
+            ->where('RangeEnd IS NOT NULL')
+            ->get()
+            ->getResultArray();
 
-        $warnaMap = [];
-        if (!empty($firstChars)) {
-            $placeholders = implode(',', array_fill(0, count($firstChars), '?'));
-            $kelasRows = $db->query(
-                "SELECT KdKelas, Warna FROM master_kelas_besar WHERE LEFT(KdKelas, 1) IN ($placeholders)",
-                $firstChars
-            )->getResultArray();
-            foreach ($kelasRows as $kelas) {
-                $key = strtoupper(substr((string) $kelas['KdKelas'], 0, 1));
-                if (!isset($warnaMap[$key])) {
-                    $warnaMap[$key] = $kelas['Warna'];
+        $resolveColor = function ($deweyNo) use ($ddcRanges, $fallbackColor) {
+            if (!preg_match('/(\d+)/', (string) ($deweyNo ?? ''), $m)) {
+                return $fallbackColor;
+            }
+            $ddcInt = (int) $m[1];
+            $best = null;
+            $bestWidth = PHP_INT_MAX;
+            foreach ($ddcRanges as $range) {
+                $start = (int) $range['RangeStart'];
+                $end = (int) $range['RangeEnd'];
+                if ($ddcInt < $start || $ddcInt > $end) {
+                    continue;
+                }
+                if (($end - $start) < $bestWidth) {
+                    $bestWidth = $end - $start;
+                    $best = $range['warna'] ?: $fallbackColor;
                 }
             }
-        }
-
-        // Model A4-9 menampilkan legenda 5 kode kelas besar per label, dengan kode
-        // yang cocok dengan kelas item disorot menggunakan warnanya.
-        $legendTemplates = ['cetak-label-a4-9'];
-        $legendKelas = [];
-        if (in_array($template, $legendTemplates, true)) {
-            $legendKelas = $db->query(
-                "SELECT KdKelas, Warna FROM master_kelas_besar WHERE active = 1 ORDER BY KdKelas ASC LIMIT 5"
-            )->getResultArray();
-        }
-
-        // Model A4-11 mewarnai tiap digit (1-3 digit pertama) dari DeweyNo item
-        // menurut warna kelas besar-nya masing-masing (mis. "201" -> digit 2, 0, 1
-        // masing-masing diwarnai sesuai kelasnya sendiri), bukan legenda tetap.
-        $digitColorMap = [];
-        if ($template === 'cetak-label-a4-11') {
-            $allKelasRows = $db->query(
-                "SELECT KdKelas, Warna FROM master_kelas_besar WHERE active = 1 ORDER BY KdKelas ASC"
-            )->getResultArray();
-            foreach ($allKelasRows as $kelas) {
-                $key = strtoupper(substr((string) $kelas['KdKelas'], 0, 1));
-                if (!isset($digitColorMap[$key])) {
-                    $digitColorMap[$key] = $kelas['Warna'];
-                }
-            }
-        }
+            return $best ?? $fallbackColor;
+        };
 
         if (empty($eksemplarData)) {
             $this->session->setFlashdata('swal_icon',  'error');
@@ -145,60 +134,32 @@ class EksemplarLabelController extends \Base\Controllers\BaseController
             ->getRow()
             ->Value ?? 'Perpustakaan Mitra';
 
-        // Model A4-10 menampilkan nama cabang/lokasi operator yang sedang mencetak
-        // (mis. nama perpustakaan cabang) di atas nama perpustakaan induk.
         $namaCabang = $namaPerpustakaan;
-        if ($template === 'cetak-label-a4-10') {
-            $branchRow = $db->table('branchs')->where('ID', branch_id())->get()->getRow();
-            $namaCabang = $branchRow->Name ?? $namaPerpustakaan;
-        }
 
         $useQrCode = str_contains($template, 'qrcode') || str_contains($paperSize, 'qrcode');
-        $useVerticalBarcode = in_array($template, ['cetak-label-a4-6', 'cetak-label-a4-9'], true);
-        $usesColorLegend = in_array($template, $legendTemplates, true);
 
         $LabelData = [];
         foreach ($eksemplarData as $row) {
-            $firstChar = strtoupper(substr((string) ($row->DeweyNo ?? ''), 0, 1));
+            // No. Panggil cetak = DDC (INT) + Nama Pengarang utama,
+            // cth. "813 - Tere Liye". DB tidak diubah.
+            $callNumberPrint = $row->CallNumber;
+            if (preg_match('/(\d+)/', (string) ($row->DeweyNo ?? ''), $m)) {
+                $author = trim((string) ($row->Author ?? ''));
+                $callNumberPrint = ((int) $m[1]) . ($author !== '' ? ' - ' . $author : '');
+            }
 
-            $entry = [
+            $LabelData[] = [
                 'Title'              => character_limiter($row->Title, 50),
                 'Barcode'            => $row->NomorBarcode,
-                'CallNumber'         => $row->CallNumber,
+                'CallNumber'         => $callNumberPrint,
                 'NamaPerpustakaan'   => $namaPerpustakaan,
                 'NamaCabang'         => $namaCabang,
-                'Warna1'             => $warnaMap[$firstChar] ?? '#FFFF66',
+                'Warna1'             => $resolveColor($row->DeweyNo ?? ''),
                 'BarcodePNG'         => $useQrCode
                                         ? get_qrcode_png($row->NomorBarcode)
                                         : get_barcode_png($row->NomorBarcode),
-                'BarcodePNGVertical' => $useVerticalBarcode
-                                        ? get_barcode_png_vertical($row->NomorBarcode)
-                                        : null,
+                'BarcodePNGVertical' => null,
             ];
-
-            if ($usesColorLegend) {
-                // Kode kelas legenda selalu ditampilkan (sampai 5 kelas); hanya baris
-                // yang cocok dengan kelas item ini diberi warna latar.
-                for ($i = 1; $i <= 5; $i++) {
-                    $kelas = $legendKelas[$i - 1] ?? null;
-                    $entry['KodeWarna' . $i] = $kelas['KdKelas'] ?? '';
-                    $entry['Warna' . $i]     = ($kelas && strtoupper(substr((string) $kelas['KdKelas'], 0, 1)) === $firstChar)
-                        ? $kelas['Warna']
-                        : '';
-                }
-            }
-
-            if ($template === 'cetak-label-a4-11') {
-                // 3 digit pertama DeweyNo, masing-masing diwarnai sesuai kelasnya sendiri.
-                $dewey = (string) ($row->DeweyNo ?? '');
-                for ($i = 1; $i <= 3; $i++) {
-                    $digit = strtoupper($dewey[$i - 1] ?? '');
-                    $entry['KodeWarna' . $i] = $digit;
-                    $entry['Warna' . $i]     = $digitColorMap[$digit] ?? '';
-                }
-            }
-
-            $LabelData[] = $entry;
         }
 
         if ($outputFormat === 'word') {

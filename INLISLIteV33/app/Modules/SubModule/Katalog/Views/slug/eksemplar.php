@@ -5,7 +5,7 @@ $branch_id = $request->getGet('branch_id');
 
 /**
  * Daftar aksi massal.
- * Aksi cetak-label memunculkan panel tambahan (jenis kertas + model).
+ * Aksi cetak-label memunculkan panel tambahan (jenis kertas + format).
  */
 $actions = [
     'cetak-label'         => 'Cetak Label',
@@ -25,26 +25,19 @@ $actions = [
  *   ]
  *
  * template_key = nama file view tanpa prefix path dan tanpa .php
- * Contoh: 'cetak-label-a4-1' → Views/template/cetak-label-a4-1.php
+ * Contoh: 'cetak-label-lr1' → Views/template/cetak-label-lr1.php
+ *
+ * CATATAN: Model A4-1 s.d. A4-12 disembunyikan dari dropdown & whitelist
+ * controller (file view tetap ada). Dropdown "Jenis Kertas" memilih file
+ * template secara langsung — dropdown "Model Label" dihapus.
  */
 $paper_size_config = [
     // ── Kertas A4 ──────────────────────────────────────────────────────────
+    // Model A4-1..A4-12 disembunyikan; tersisa varian QR.
     'a4' => [
         'label'  => 'Kertas A4',
         'group'  => 'Kertas A4',
         'models' => [
-            'cetak-label-a4-1'       => 'Model A4-1 (No. Panggil + Barcode)',
-            'cetak-label-a4-2'       => 'Model A4-2 (No. Panggil + Barcode)',
-            'cetak-label-a4-3'       => 'Model A4-3 (No. Panggil + Barcode + 1 Warna)',
-            'cetak-label-a4-4'       => 'Model A4-4 (No. Panggil + Barcode + 1 Warna)',
-            'cetak-label-a4-5'       => 'Model A4-5 (No. Panggil + Barcode)',
-            'cetak-label-a4-6'       => 'Model A4-6 (No. Panggil + Barcode)',
-            'cetak-label-a4-7'       => 'Model A4-7 (No. Panggil + Barcode + 1 Warna)',
-            'cetak-label-a4-8'       => 'Model A4-8 (No. Panggil + Barcode + 1 Warna)',
-            'cetak-label-a4-9'       => 'Model A4-9 (No. Panggil + Barcode + 5 Warna Kelas)',
-            'cetak-label-a4-10'      => 'Model A4-10 (No. Panggil + 2x Barcode + Cabang)',
-            'cetak-label-a4-11'      => 'Model A4-11 (No. Panggil + 3 Digit Warna Kelas, Tanpa Barcode)',
-            'cetak-label-a4-12'      => 'Model A4-12 (Judul + Barcode, 24 Label/Halaman)',
             // QR Code – fitur baru yang dipertahankan
             'cetak-label-a4-4-qrcode' => 'Model A4-QR (QR Code + No. Panggil)',
         ],
@@ -102,7 +95,6 @@ $paper_size_config = [
 ];
 
 // Encode ke JSON agar bisa dikonsumsi JavaScript tanpa request AJAX tambahan
-$paper_size_json = json_encode($paper_size_config, JSON_UNESCAPED_UNICODE);
 ?>
 <?= $this->section('style'); ?>
 <style>
@@ -158,35 +150,30 @@ $paper_size_json = json_encode($paper_size_config, JSON_UNESCAPED_UNICODE);
             <div id="cetak_panel" style="display:none; padding: 8px 0 4px 0;">
                 <div class="d-flex align-items-center flex-wrap" style="gap:6px;">
 
-                    <!-- Jenis Kertas -->
-                    <div class="input-group" style="width:280px; flex-shrink:0;">
+                    <!-- Jenis Kertas (= file template, dikelompokkan per kertas) -->
+                    <div class="input-group" style="width:420px; flex-shrink:0;">
                         <div class="input-group-prepend">
                             <span class="btn btn-secondary">Jenis Kertas</span>
                         </div>
                         <select class="form-control" id="paper_size" name="paper_size">
                             <option value="">-- Pilih Jenis Kertas --</option>
-                            <optgroup label="Kertas A4">
-                                <option value="a4">Kertas A4</option>
+                            <?php
+                            $renderedGroups = [];
+                            foreach ($paper_size_config as $paperKey => $paper) :
+                                if (empty($paper['models'])) continue;
+                                if (!isset($renderedGroups[$paper['group']])) $renderedGroups[$paper['group']] = [];
+                                foreach ($paper['models'] as $tplKey => $tplLabel) {
+                                    $renderedGroups[$paper['group']][] = ['tpl' => $tplKey, 'label' => $tplLabel, 'paper' => $paperKey];
+                                }
+                            endforeach;
+                            foreach ($renderedGroups as $groupLabel => $items) :
+                            ?>
+                            <optgroup label="<?= esc($groupLabel) ?>">
+                                <?php foreach ($items as $item) : ?>
+                                <option value="<?= esc($item['tpl']) ?>" data-paper="<?= esc($item['paper']) ?>"><?= esc($item['label']) ?></option>
+                                <?php endforeach; ?>
                             </optgroup>
-                            <optgroup label="Kertas Label Roll">
-                                <option value="label-roll">Kertas Label Roll</option>
-                                <option value="barcode-roll">Kertas Barcode Roll</option>
-                            </optgroup>
-                            <optgroup label="Kertas Label Stiker">
-                                <option value="label-tj107">Tom &amp; Jerry 107</option>
-                                <option value="label-tj121">Tom &amp; Jerry 121</option>
-                                <option value="label-gc121">Golden Cock 121</option>
-                            </optgroup>
-                        </select>
-                    </div>
-
-                    <!-- Model Label (muncul setelah kertas dipilih) -->
-                    <div class="input-group" id="label_model_wrapper" style="display:none; width:320px; flex-shrink:0;">
-                        <div class="input-group-prepend">
-                            <span class="btn btn-secondary">Model Label</span>
-                        </div>
-                        <select class="form-control" id="label_model" name="label_model">
-                            <option value="">-- Pilih Model --</option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
 
@@ -201,14 +188,6 @@ $paper_size_json = json_encode($paper_size_config, JSON_UNESCAPED_UNICODE);
                         </select>
                     </div>
 
-                </div>
-
-                <!-- Info ringkas pilihan aktif -->
-                <div id="model_info_row" style="display:none; margin-top:4px;">
-                    <small class="text-muted">
-                        <i class="fa fa-info-circle text-primary"></i>
-                        <span id="model_info_text"></span>
-                    </small>
                 </div>
             </div>
             <!-- end #cetak_panel -->
@@ -295,9 +274,6 @@ $(document).ready(function () {
             timer           : 3000
         });
     <?php endif; ?>
-
-    // ── Konfigurasi kertas & model (di-inject dari PHP) ────────────────────
-    var paperSizeConfig = <?= $paper_size_json ?>;
 
     // ── DataTable ─────────────────────────────────────────────────────────
     var t = $('#tbl_data').DataTable({
@@ -464,55 +440,14 @@ $(document).ready(function () {
     // Reset semua pilihan dalam panel cetak
     function resetCetakPanel() {
         $('#paper_size').val('');
-        $('#label_model').html('<option value="">-- Pilih Model --</option>');
-        $('#label_model_wrapper').hide();
-        $('#model_info_row').hide();
-        $('#model_info_text').text('');
     }
-
-    // ── Isi dropdown Model saat Jenis Kertas berubah ──────────────────────
-    $('#paper_size').on('change', function () {
-        var paperKey  = $(this).val();
-        var $modelSel = $('#label_model');
-
-        // Reset model
-        $modelSel.html('<option value="">-- Pilih Model --</option>');
-        $('#model_info_row').hide();
-        $('#model_info_text').text('');
-
-        if (!paperKey || !paperSizeConfig[paperKey]) {
-            $('#label_model_wrapper').slideUp(200);
-            return;
-        }
-
-        var models = paperSizeConfig[paperKey].models;
-        $.each(models, function (modelKey, modelLabel) {
-            $modelSel.append(
-                $('<option>', { value: modelKey, text: modelLabel })
-            );
-        });
-
-        $('#label_model_wrapper').slideDown(200);
-    });
-
-    // ── Info model yang dipilih ───────────────────────────────────────────
-    $('#label_model').on('change', function () {
-        var modelText = $(this).find('option:selected').text();
-        var paperText = $('#paper_size').find('option:selected').text();
-
-        if ($(this).val()) {
-            $('#model_info_text').text(paperText + '  →  ' + modelText);
-            $('#model_info_row').show();
-        } else {
-            $('#model_info_row').hide();
-        }
-    });
 
     // ── Tombol Proses ─────────────────────────────────────────────────────
     $('#btnProcess2').on('click', function () {
         var action       = $('#action').val();
-        var paperSize    = $('#paper_size').val();
-        var labelModel   = $('#label_model').val();
+        var $paperOpt    = $('#paper_size').find('option:selected');
+        var template     = $('#paper_size').val();
+        var paperSize    = ($paperOpt.data('paper')) || 'a4';
         var outputFormat = $('#output_format').val() || 'pdf';
 
         // Validasi aksi
@@ -523,12 +458,8 @@ $(document).ready(function () {
 
         // Validasi khusus cetak label
         if (action === 'cetak-label') {
-            if (!paperSize) {
+            if (!template) {
                 Swal.fire({ icon: 'warning', title: 'Peringatan', text: 'Silakan pilih jenis kertas terlebih dahulu!', showConfirmButton: true });
-                return false;
-            }
-            if (!labelModel) {
-                Swal.fire({ icon: 'warning', title: 'Peringatan', text: 'Silakan pilih model label terlebih dahulu!', showConfirmButton: true });
                 return false;
             }
         }
@@ -559,9 +490,10 @@ $(document).ready(function () {
         form.append($('<input>', { type: 'hidden', name: 'eksemplar_ids', value: checkedItems.join(',') }));
 
         if (action === 'cetak-label') {
-            // eksemplar_tpl = key template (misal: cetak-label-a4-2, cetak-label-lr3, dst.)
+            // eksemplar_tpl = key template (misal: cetak-label-lr3, dst.)
+            // paper_size = grup kertas (label-roll, a4, dst.)
             // Controller akan memetakan key ini ke file view yang sesuai
-            form.append($('<input>', { type: 'hidden', name: 'eksemplar_tpl',  value: labelModel   }));
+            form.append($('<input>', { type: 'hidden', name: 'eksemplar_tpl',  value: template    }));
             form.append($('<input>', { type: 'hidden', name: 'paper_size',     value: paperSize    }));
             form.append($('<input>', { type: 'hidden', name: 'output_format',  value: outputFormat }));
         }

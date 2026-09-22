@@ -5,7 +5,7 @@ $branch_id = $request->getGet('branch_id');
 
 /**
  * Daftar aksi massal.
- * Aksi cetak-label memunculkan panel tambahan (jenis kertas + model).
+ * Aksi cetak-label memunculkan panel tambahan (jenis kertas + format).
  */
 $actions = [
     'cetak-label'         => 'Cetak Label',
@@ -25,26 +25,20 @@ $actions = [
  *   ]
  *
  * template_key = nama file view tanpa prefix path dan tanpa .php
- * Contoh: 'cetak-label-a4-1' → Views/template/cetak-label-a4-1.php
+ * Contoh: 'cetak-label-lr1' → Views/template/cetak-label-lr1.php
+ *
+ * CATATAN: Model A4-1 s.d. A4-12 disembunyikan dari dropdown & whitelist
+ * controller (file view tetap ada). Dropdown "Jenis Kertas" kini memilih
+ * file template secara langsung (value = template_key, grup kertas dibawa
+ * via atribut data-paper) — dropdown "Model Label" dihapus.
  */
 $paper_size_config = [
     // ── Kertas A4 ──────────────────────────────────────────────────────────
+    // Model A4-1..A4-12 disembunyikan; tersisa varian QR.
     'a4' => [
         'label'  => 'Kertas A4',
         'group'  => 'Kertas A4',
         'models' => [
-            'cetak-label-a4-1'       => 'Model A4-1 (No. Panggil + Barcode)',
-            'cetak-label-a4-2'       => 'Model A4-2 (No. Panggil + Barcode)',
-            'cetak-label-a4-3'       => 'Model A4-3 (No. Panggil + Barcode + 1 Warna)',
-            'cetak-label-a4-4'       => 'Model A4-4 (No. Panggil + Barcode + 1 Warna)',
-            'cetak-label-a4-5'       => 'Model A4-5 (No. Panggil + Barcode)',
-            'cetak-label-a4-6'       => 'Model A4-6 (No. Panggil + Barcode)',
-            'cetak-label-a4-7'       => 'Model A4-7 (No. Panggil + Barcode + 1 Warna)',
-            'cetak-label-a4-8'       => 'Model A4-8 (No. Panggil + Barcode + 1 Warna)',
-            'cetak-label-a4-9'       => 'Model A4-9 (No. Panggil + Barcode + 5 Warna Kelas)',
-            'cetak-label-a4-10'      => 'Model A4-10 (No. Panggil + 2x Barcode + Cabang)',
-            'cetak-label-a4-11'      => 'Model A4-11 (No. Panggil + 3 Digit Warna Kelas, Tanpa Barcode)',
-            'cetak-label-a4-12'      => 'Model A4-12 (Judul + Barcode, 24 Label/Halaman)',
             // QR Code – fitur baru yang dipertahankan
             'cetak-label-a4-4-qrcode' => 'Model A4-QR (QR Code + No. Panggil)',
         ],
@@ -380,41 +374,37 @@ $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata(
                 <button class="btn btn-primary" id="btnProcess2" type="button" style="height:38px; padding: 0 16px; flex-shrink:0;">
                     <i class="fa fa-check" aria-hidden="true"></i> Proses
                 </button>
+                <small class="text-muted align-self-center" id="selected_count" aria-live="polite"></small>
             </div>
 
             <!-- ── Baris 2: Opsi Cetak (muncul jika aksi = Cetak Label) ── -->
             <div id="cetak_panel" style="display:none; padding: 8px 0 4px 0;">
                 <div class="d-flex align-items-center flex-wrap" style="gap:6px;">
 
-                    <!-- Jenis Kertas -->
-                    <div class="input-group" style="width:280px; flex-shrink:0;">
+                    <!-- Jenis Kertas (= file template, dikelompokkan per kertas) -->
+                    <div class="input-group" style="width:420px; flex-shrink:0;">
                         <div class="input-group-prepend">
                             <label class="exemplar-filter-label" for="paper_size">Jenis Kertas</label>
                         </div>
                         <select class="form-control" id="paper_size" name="paper_size">
                             <option value="">-- Pilih Jenis Kertas --</option>
-                            <optgroup label="Kertas A4">
-                                <option value="a4">Kertas A4</option>
+                            <?php
+                            $renderedGroups = [];
+                            foreach ($paper_size_config as $paperKey => $paper) :
+                                if (empty($paper['models'])) continue;
+                                if (!isset($renderedGroups[$paper['group']])) $renderedGroups[$paper['group']] = [];
+                                foreach ($paper['models'] as $tplKey => $tplLabel) {
+                                    $renderedGroups[$paper['group']][] = ['tpl' => $tplKey, 'label' => $tplLabel, 'paper' => $paperKey];
+                                }
+                            endforeach;
+                            foreach ($renderedGroups as $groupLabel => $items) :
+                            ?>
+                            <optgroup label="<?= esc($groupLabel) ?>">
+                                <?php foreach ($items as $item) : ?>
+                                <option value="<?= esc($item['tpl']) ?>" data-paper="<?= esc($item['paper']) ?>"><?= esc($item['label']) ?></option>
+                                <?php endforeach; ?>
                             </optgroup>
-                            <optgroup label="Kertas Label Roll">
-                                <option value="label-roll">Kertas Label Roll</option>
-                                <option value="barcode-roll">Kertas Barcode Roll</option>
-                            </optgroup>
-                            <optgroup label="Kertas Label Stiker">
-                                <option value="label-tj107">Tom &amp; Jerry 107</option>
-                                <option value="label-tj121">Tom &amp; Jerry 121</option>
-                                <option value="label-gc121">Golden Cock 121</option>
-                            </optgroup>
-                        </select>
-                    </div>
-
-                    <!-- Model Label (muncul setelah kertas dipilih) -->
-                    <div class="input-group" id="label_model_wrapper" style="display:none; width:320px; flex-shrink:0;">
-                        <div class="input-group-prepend">
-                            <label class="exemplar-filter-label" for="label_model">Model Label</label>
-                        </div>
-                        <select class="form-control" id="label_model" name="label_model">
-                            <option value="">-- Pilih Model --</option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
 
@@ -431,13 +421,6 @@ $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata(
 
                 </div>
 
-                <!-- Info ringkas pilihan aktif -->
-                <div id="model_info_row" style="display:none; margin-top:4px;">
-                    <small class="text-muted">
-                        <i class="fa fa-info-circle text-primary" aria-hidden="true"></i>
-                        <span id="model_info_text"></span>
-                    </small>
-                </div>
             </div>
             <!-- end #cetak_panel -->
 
@@ -486,7 +469,7 @@ $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata(
                 <div>
                     <label for="exemplar_page_length" class="d-block mb-1">Data per halaman</label>
                     <select id="exemplar_page_length" class="form-control">
-                        <option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option>
+                        <option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="250">250</option><option value="500">500</option><option value="1000">1000</option>
                     </select>
                 </div>
                 <div class="exemplar-search-wrapper">
@@ -537,6 +520,35 @@ $flashMessage = session()->getFlashdata('swal_html') ?? session()->getFlashdata(
     </div>
 </section>
 
+<!-- ── Modal Preflight Cetak Label ─────────────────────────────── -->
+<div class="modal fade" id="modal_preflight" tabindex="-1" role="dialog" aria-labelledby="preflightTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title" id="preflightTitle"><i class="fa fa-exclamation-triangle" aria-hidden="true"></i> Peringatan DDC</h5>
+                <button type="button" class="close" data-bs-dismiss="modal" aria-label="Tutup">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">Eksemplar berikut <strong>DDC-nya kosong atau di luar rentang</strong> Master Kelas Besar, sehingga labelnya akan dicetak dengan <strong>warna fallback abu-abu (#CCCCCC)</strong>:</p>
+                <div class="table-responsive" style="max-height:300px; overflow-y:auto;">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead>
+                            <tr><th class="text-center" width="40">No</th><th>Barcode</th><th>Judul</th><th width="120">DDC</th><th width="140">Masalah</th></tr>
+                        </thead>
+                        <tbody id="preflight_rows"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="btnPreflightCancel">Batal</button>
+                <button type="button" class="btn btn-warning" id="btnPreflightContinue"><i class="fa fa-print" aria-hidden="true"></i> Lanjutkan (warna fallback)</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <?= $this->endSection('page'); ?>
 
 <?= $this->section('script'); ?>
@@ -546,7 +558,8 @@ window.exemplarListConfig = <?= json_encode([
     'librariesUrl' => site_url('api/eksemplar/locationlibrary'),
     'roomsUrl' => site_url('api/eksemplar/locations'),
     'mediaUrl' => site_url('api/eksemplar/collectionmedias'),
-    'paperSizes' => $paper_size_config,
+    'rangesUrl' => site_url('api/eksemplar/kelas-ranges'),
+    'fallbackColor' => '#CCCCCC',
     'csrfName' => csrf_token(),
     'csrfHash' => csrf_hash(),
     'actions' => [

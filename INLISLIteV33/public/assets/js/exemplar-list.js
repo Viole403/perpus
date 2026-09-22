@@ -14,6 +14,25 @@ document.addEventListener('DOMContentLoaded', function () {
     let roomRequest;
     let searchTimer;
 
+    // ── Seleksi persisten lintas halaman ──────────────────────────────
+    // ID tersimpan sebagai string agar konsisten dengan input.value.
+    const selected = new Set();
+    // Cache baris per ID (barcode/judul/DDC) untuk preflight tanpa request tambahan.
+    const rowCache = new Map();
+    let rangesCache = null;
+
+    function updateCounter() {
+        const el = byId('selected_count');
+        if (el) el.textContent = selected.size ? selected.size + ' eksemplar dipilih' : '';
+    }
+
+    function syncSelectAll() {
+        const boxes = [...tbody.querySelectorAll('.check')];
+        const count = boxes.filter(input => input.checked).length;
+        selectAll.checked = boxes.length > 0 && count === boxes.length;
+        selectAll.indeterminate = count > 0 && count < boxes.length;
+    }
+
     function cell(row, value, className) {
         const td = document.createElement('td');
         td.className = className || '';
@@ -38,6 +57,13 @@ document.addEventListener('DOMContentLoaded', function () {
             fragment.appendChild(row);
         }
         items.forEach(function (item, index) {
+            const id = String(item.ID);
+            rowCache.set(id, {
+                barcode: item.NomorBarcode || '',
+                title: item.Title || '',
+                ddc: item.DeweyNo == null ? '' : String(item.DeweyNo),
+                author: item.Author || '',
+            });
             const row = document.createElement('tr');
             const label = item.NomorBarcode || item.ID;
             cell(row, offset + index + 1, 'text-center');
@@ -45,7 +71,8 @@ document.addEventListener('DOMContentLoaded', function () {
             checkbox.type = 'checkbox';
             checkbox.className = 'check';
             checkbox.name = 'ID[]';
-            checkbox.value = item.ID;
+            checkbox.value = id;
+            checkbox.checked = selected.has(id);
             checkbox.setAttribute('aria-label', 'Pilih eksemplar ' + label);
             cell(row, '', 'text-center').replaceChildren(checkbox);
 
@@ -92,8 +119,7 @@ document.addEventListener('DOMContentLoaded', function () {
             fragment.appendChild(row);
         });
         tbody.replaceChildren(fragment);
-        selectAll.checked = false;
-        selectAll.indeterminate = false;
+        syncSelectAll();
     }
 
     function pagination() {
@@ -211,14 +237,23 @@ document.addEventListener('DOMContentLoaded', function () {
         button.closest('th').setAttribute('aria-sort', state.direction === 'asc' ? 'ascending' : 'descending');
         reload();
     });
-    selectAll.addEventListener('change', function () { tbody.querySelectorAll('.check').forEach(input => { input.checked = selectAll.checked; }); });
+    selectAll.addEventListener('change', function () {
+        tbody.querySelectorAll('.check').forEach(function (input) {
+            input.checked = selectAll.checked;
+            if (selectAll.checked) selected.add(input.value);
+            else selected.delete(input.value);
+        });
+        syncSelectAll();
+        updateCounter();
+    });
     tbody.addEventListener('change', async function (event) {
         const input = event.target;
         if (input.matches('.check')) {
-            const count = tbody.querySelectorAll('.check:checked').length;
-            const total = tbody.querySelectorAll('.check').length;
-            selectAll.checked = total > 0 && count === total;
-            selectAll.indeterminate = count > 0 && count < total;
+            if (input.checked) selected.add(input.value);
+            else selected.delete(input.value);
+            syncSelectAll();
+            updateCounter();
+            return;
         }
         if (!input.matches('.apply-status')) return;
         const nextValue = input.checked;
@@ -242,44 +277,79 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (error) { window.prompt('Salin barcode berikut:', button.dataset.barcode); }
     });
 
+    // ── Panel cetak: Jenis Kertas memilih file template langsung ──────
     byId('action').addEventListener('change', function () {
         const printing = this.value === 'cetak-label';
         byId('cetak_panel').style.display = printing ? '' : 'none';
-        if (!printing) {
-            byId('paper_size').value = '';
-            byId('label_model').replaceChildren(new Option('-- Pilih Model --', ''));
-            byId('label_model_wrapper').style.display = 'none';
-            byId('model_info_row').style.display = 'none';
+        if (!printing) byId('paper_size').value = '';
+    });
+
+    // ── Preflight DDC ─────────────────────────────────────────────────
+    function parseDdcInt(ddc) {
+        const m = /(\d+)/.exec(String(ddc == null ? '' : ddc));
+        return m ? parseInt(m[1], 10) : null;
+    }
+
+    function resolveRange(ddcInt, ranges) {
+        let best = null;
+        let bestWidth = Infinity;
+        ranges.forEach(function (r) {
+            const s = Number(r.RangeStart);
+            const e = Number(r.RangeEnd);
+            if (!Number.isFinite(s) || !Number.isFinite(e)) return;
+            if (ddcInt < s || ddcInt > e) return;
+            const width = e - s;
+            if (width < bestWidth) { bestWidth = width; best = r; }
+        });
+        return best;
+    }
+
+    async function getRanges() {
+        if (rangesCache) return rangesCache;
+        const payload = await json(config.rangesUrl);
+        rangesCache = Array.isArray(payload.ranges) ? payload.ranges : [];
+        return rangesCache;
+    }
+
+    function showModal() {
+        const el = byId('modal_preflight');
+        if (window.jQuery && window.jQuery(el).modal) { window.jQuery(el).modal('show'); return; }
+        if (window.bootstrap && window.bootstrap.Modal) { window.bootstrap.Modal.getOrCreateInstance(el).show(); return; }
+        el.style.display = 'block';
+        el.classList.add('show');
+    }
+
+    function hideModal() {
+        const el = byId('modal_preflight');
+        if (window.jQuery && window.jQuery(el).modal) { window.jQuery(el).modal('hide'); return; }
+        if (window.bootstrap && window.bootstrap.Modal) {
+            const inst = window.bootstrap.Modal.getInstance(el);
+            if (inst) { inst.hide(); return; }
         }
+        el.style.display = 'none';
+        el.classList.remove('show');
+    }
+
+    let pendingSubmit = null;
+
+    byId('btnPreflightContinue').addEventListener('click', function () {
+        hideModal();
+        if (pendingSubmit) { const fn = pendingSubmit; pendingSubmit = null; fn(); }
     });
-    byId('paper_size').addEventListener('change', function () {
-        const paper = config.paperSizes[this.value];
-        const models = byId('label_model');
-        models.replaceChildren(new Option('-- Pilih Model --', ''));
-        byId('model_info_row').style.display = 'none';
-        byId('label_model_wrapper').style.display = paper ? '' : 'none';
-        if (paper) Object.entries(paper.models).forEach(([value, label]) => models.appendChild(new Option(label, value)));
-    });
-    byId('label_model').addEventListener('change', function () {
-        byId('model_info_row').style.display = this.value ? '' : 'none';
-        byId('model_info_text').textContent = byId('paper_size').selectedOptions[0].text + ' → ' + this.selectedOptions[0].text;
-    });
-    byId('btnProcess2').addEventListener('click', function () {
-        const action = byId('action').value;
-        const paper = byId('paper_size').value;
-        const model = byId('label_model').value;
-        const ids = [...tbody.querySelectorAll('.check:checked')].map(input => input.value);
-        if (!action) return window.alert('Silakan pilih aksi terlebih dahulu!');
-        if (action === 'cetak-label' && !paper) return window.alert('Silakan pilih jenis kertas terlebih dahulu!');
-        if (action === 'cetak-label' && !model) return window.alert('Silakan pilih model label terlebih dahulu!');
-        if (!ids.length) return window.alert('Silakan pilih minimal satu eksemplar!');
-        const url = config.actions[action];
+
+    function submitPrint(template, paper) {
+        const url = config.actions['cetak-label'];
         if (!url) return;
         const form = document.createElement('form');
         form.method = 'post';
         form.action = url;
-        const fields = { eksemplar_ids: ids.join(','), [config.csrfName]: config.csrfHash };
-        if (action === 'cetak-label') Object.assign(fields, { eksemplar_tpl: model, paper_size: paper, output_format: byId('output_format').value || 'pdf' });
+        const fields = {
+            eksemplar_ids: [...selected].join(','),
+            [config.csrfName]: config.csrfHash,
+            eksemplar_tpl: template,
+            paper_size: paper,
+            output_format: byId('output_format').value || 'pdf',
+        };
         Object.entries(fields).forEach(function ([name, value]) {
             const input = document.createElement('input');
             input.type = 'hidden'; input.name = name; input.value = value;
@@ -287,6 +357,75 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         document.body.appendChild(form);
         form.submit();
+    }
+
+    byId('btnProcess2').addEventListener('click', async function () {
+        const action = byId('action').value;
+        if (!action) return window.alert('Silakan pilih aksi terlebih dahulu!');
+        if (!selected.size) return window.alert('Silakan pilih minimal satu eksemplar!');
+        const url = config.actions[action];
+        if (!url) return;
+
+        if (action !== 'cetak-label') {
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = url;
+            const fields = { eksemplar_ids: [...selected].join(','), [config.csrfName]: config.csrfHash };
+            Object.entries(fields).forEach(function ([name, value]) {
+                const input = document.createElement('input');
+                input.type = 'hidden'; input.name = name; input.value = value;
+                form.appendChild(input);
+            });
+            document.body.appendChild(form);
+            form.submit();
+            return;
+        }
+
+        const paperSelect = byId('paper_size');
+        const template = paperSelect.value;
+        if (!template) return window.alert('Silakan pilih jenis kertas terlebih dahulu!');
+        const paper = (paperSelect.selectedOptions[0] && paperSelect.selectedOptions[0].dataset.paper) || 'a4';
+
+        let ranges = [];
+        try {
+            ranges = await getRanges();
+        } catch (error) {
+            window.alert('Gagal memuat rentang kelas: ' + error.message);
+            return;
+        }
+
+        const problems = [];
+        [...selected].forEach(function (id) {
+            const cached = rowCache.get(String(id));
+            if (!cached) return; // belum pernah tampil di halaman; lolos ke server (fallback)
+            const ddcInt = parseDdcInt(cached.ddc);
+            if (ddcInt === null) {
+                problems.push({ id, cached, issue: 'DDC kosong' });
+            } else if (!resolveRange(ddcInt, ranges)) {
+                problems.push({ id, cached, issue: 'Di luar rentang' });
+            }
+        });
+
+        if (!problems.length) {
+            submitPrint(template, paper);
+            return;
+        }
+
+        const rowsEl = byId('preflight_rows');
+        rowsEl.replaceChildren();
+        problems.forEach(function (p, i) {
+            const tr = document.createElement('tr');
+            [['', String(i + 1), 'text-center'], ['', p.cached.barcode || '-', ''], ['', p.cached.title || '-', ''],
+             ['', p.cached.ddc === '' ? '-' : p.cached.ddc, 'text-center'], ['', p.issue, 'text-center']].forEach(function ([, text, cls]) {
+                const td = document.createElement('td');
+                td.className = cls;
+                td.textContent = text;
+                tr.appendChild(td);
+            });
+            rowsEl.appendChild(tr);
+        });
+        pendingSubmit = function () { submitPrint(template, paper); };
+        showModal();
     });
 
     loadRows();

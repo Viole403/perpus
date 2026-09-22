@@ -69,6 +69,7 @@ $routes->group('api/eksemplar', ['namespace' => 'Eksemplar\Controllers\Api'], fu
     $subroutes->add('switch/(:any)',           'Eksemplar::switch/$1');
 
     $subroutes->get('collectionsources',   'Eksemplar::get_collectionsources');
+    $subroutes->get('kelas-ranges',          'Eksemplar::kelas_ranges');
     $subroutes->get('collectionpartners',  'Eksemplar::get_collectionpartners');
     $subroutes->get('collectionrules',     'Eksemplar::get_collectionrules');
     $subroutes->get('collectionmedias',    'Eksemplar::get_collectionmedias');
